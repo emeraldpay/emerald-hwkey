@@ -30,7 +30,7 @@ use crate::{
     errors::HWKeyError,
 };
 use hex;
-use hidapi::{HidApi, HidDevice, HidDeviceInfo};
+use hidapi::{HidApi, HidDevice, DeviceInfo};
 use std::{
     str::{from_utf8, FromStr},
     thread,
@@ -66,7 +66,7 @@ struct Device {
     ///
     address: String,
     ///
-    hid_info: HidDeviceInfo,
+    hid_info: DeviceInfo,
 }
 
 impl PartialEq for Device {
@@ -75,11 +75,11 @@ impl PartialEq for Device {
     }
 }
 
-impl From<&HidDeviceInfo> for Device {
-    fn from(hid_info: &HidDeviceInfo) -> Self {
+impl From<&DeviceInfo> for Device {
+    fn from(hid_info: &DeviceInfo) -> Self {
         let info = hid_info.clone();
         Device {
-            fd: info.path.clone(),
+            fd: info.path().to_string_lossy().to_string(),
             address: "".to_string(),
             hid_info: info,
         }
@@ -92,28 +92,15 @@ pub struct LedgerKey {
     hid: HidApi,
     /// List of available wallets
     device: Option<Device>,
-    /// Derivation path
-    hd_path: Option<Vec<u8>>,
 }
 
 impl LedgerKey {
-    /// Creates new `Wallet Manager` with a specified
-    /// derivation path
-    pub fn new(hd_path: Option<Vec<u8>>) -> Result<LedgerKey, HWKeyError> {
+    /// Creates new `Ledger Key Manager`
+    pub fn new() -> Result<LedgerKey, HWKeyError> {
         Ok(Self {
             hid: HidApi::new()?,
             device: None,
-            hd_path,
         })
-    }
-
-    /// Decides what HD path to use
-    pub fn pick_hd_path(&self, h: Option<Vec<u8>>) -> Result<Vec<u8>, HWKeyError> {
-        if self.hd_path.is_none() && h.is_none() {
-            return Err(HWKeyError::OtherError("HD path is not specified".to_string()));
-        }
-
-        Ok(h.or_else(|| self.hd_path.clone()).unwrap())
     }
 
     /// Get address
@@ -125,9 +112,8 @@ impl LedgerKey {
     pub fn get_address(
         &self,
         _fd: &str,
-        hd_path: Option<Vec<u8>>,
+        hd_path: Vec<u8>,
     ) -> Result<String, HWKeyError> {
-        let hd_path = self.pick_hd_path(hd_path)?;
 
         let apdu = ApduBuilder::new(GET_ETH_ADDRESS)
             .with_data(&hd_path)
@@ -163,9 +149,8 @@ impl LedgerKey {
         &self,
         _fd: &str,
         tr: &[u8],
-        hd_path: Option<Vec<u8>>,
+        hd_path: Vec<u8>,
     ) -> Result<SignatureBytes, HWKeyError> {
-        let hd_path = self.pick_hd_path(hd_path)?;
 
         let _mock = Vec::new();
         let (init, cont) = match tr.len() {
@@ -217,57 +202,36 @@ impl LedgerKey {
     }
 
     /// Update device list
-    pub fn update(&mut self, hd_path: Option<Vec<u8>>) -> Result<(), HWKeyError> {
-        let hd_path = self.pick_hd_path(hd_path)?;
-
+    pub fn connect(&mut self) -> Result<(), HWKeyError> {
         self.hid.refresh_devices();
-        debug!("Start searching for devices: {:?}", self.hid.devices());
 
-        let devices = self.hid.devices();
-        let current = devices.iter().find(|hid_info| {
+        let current = self.hid.device_list().find(|hid_info| {
             debug!("device {:?}", hid_info);
-            hid_info.vendor_id == LEDGER_VID
-                && (hid_info.product_id == LEDGER_S_PID_1
-                || hid_info.product_id == LEDGER_S_PID_2
-                || hid_info.product_id == LEDGER_S_PID_3
-                || hid_info.product_id == LEDGER_X_PID_1
-                || hid_info.product_id == LEDGER_X_PID_2)
+            hid_info.vendor_id() == LEDGER_VID
+                && (hid_info.product_id() == LEDGER_S_PID_1
+                || hid_info.product_id() == LEDGER_S_PID_2
+                || hid_info.product_id() == LEDGER_S_PID_3
+                || hid_info.product_id() == LEDGER_X_PID_1
+                || hid_info.product_id() == LEDGER_X_PID_2)
         });
 
-        //TODO should verify address before assigning, not after
-        match current {
-            Some(hid_info) => {
-                let d = Device::from(hid_info);
-                let fd = d.fd.clone();
-                self.device = Some(d);
-                match self.get_address(&fd, Some(hd_path.clone())) {
-                    Ok(address) => {
-                        self.device = Some(Device {
-                            address,
-                            ..Device::from(hid_info)
-                        });
-                    }
-                    Err(_) => {
-                        self.device = None;
-                    }
-                }
-            }
-            None => {
-                self.device = None;
-            }
-        };
+        if current.is_none() {
+            self.device = None;
+            return Err(HWKeyError::Unavailable);
+        }
+
+        let hid_info = current.unwrap();
+        let d = Device::from(hid_info);
+        self.device = Some(d);
 
         Ok(())
     }
 
-    pub fn open(&self) -> Result<HidDevice, HWKeyError> {
+    fn open(&self) -> Result<HidDevice, HWKeyError> {
         if self.device.is_none() {
-            return Err(HWKeyError::OtherError("Device not selected".to_string()));
+            return Err(HWKeyError::Unavailable);
         }
-        let target = match &self.device {
-            Some(device) => device,
-            None => panic!("Device not selected"),
-        };
+        let target = self.device.as_ref().unwrap();
         // up to 10 tries, starting from 100ms increasing by 75ms, in total 1450ms max
         let mut retry_delay = 100;
         for _ in 0..10 {
@@ -275,7 +239,7 @@ impl LedgerKey {
             //serial number is always 0001
             if let Ok(h) = self
                 .hid
-                .open(target.hid_info.vendor_id, target.hid_info.product_id)
+                .open(target.hid_info.vendor_id(), target.hid_info.product_id())
             {
                 match ping(&h) {
                     Ok(v) => {

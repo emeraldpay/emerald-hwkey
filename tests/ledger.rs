@@ -77,8 +77,8 @@ pub fn should_get_address_with_ledger() {
         warn!("Ledger test is disabled");
         return;
     }
-    let mut manager = LedgerKey::new(Some(ETC_DERIVATION_PATH.to_vec())).unwrap();
-    manager.update(None).unwrap();
+    let mut manager = LedgerKey::new().unwrap();
+    manager.connect().expect("Not connected");
 
     assert!(!manager.devices().is_empty());
 
@@ -87,30 +87,9 @@ pub fn should_get_address_with_ledger() {
     let addresses = read_test_addresses();
     for address in addresses {
         let hdpath = StandardHDPath::try_from(address.hdpath.as_str()).expect("Invalid HDPath");
-        let act = manager.get_address(fd, Some(hdpath.to_bytes())).unwrap();
+        let act = manager.get_address(fd, hdpath.to_bytes()).unwrap();
         assert_eq!(as_ethereum_address(act), address.address);
     }
-}
-
-#[test]
-pub fn should_pick_hd_path() {
-    if !is_ledger_enabled() {
-        warn!("Ledger test is disabled");
-        return;
-    }
-    let buf1 = vec![0];
-    let buf2 = vec![1];
-
-    let mut manager = LedgerKey::new(Some(ETC_DERIVATION_PATH.to_vec())).unwrap();
-    manager.update(None).unwrap();
-
-    assert_eq!(manager.pick_hd_path(Some(buf1.clone())).unwrap(), buf1);
-
-    // let manager = WManager::new(Some(buf2.clone())).unwrap();
-    // assert_eq!(manager.pick_hd_path(Some(buf2.clone())).unwrap(), buf2);
-    //
-    // let manager = WManager::new(Some(buf1.clone())).unwrap();
-    // assert_eq!(manager.pick_hd_path(None).unwrap(), buf1);
 }
 
 #[test]
@@ -147,8 +126,8 @@ pub fn sign_1kovan_to_78296f10() {
 }
 
 fn test_tx_sign(exp: &TestTx) {
-    let mut manager = LedgerKey::new(Some(ETC_DERIVATION_PATH.to_vec())).unwrap();
-    manager.update(None).unwrap();
+    let mut manager = LedgerKey::new().unwrap();
+    manager.connect().expect("Not connected");
 
     println!("Test: {:}", exp.id);
     let from = exp.from.as_ref().unwrap();
@@ -157,7 +136,7 @@ fn test_tx_sign(exp: &TestTx) {
     let rlp = hex::decode(&exp.unsigned).unwrap();
     let fd = &manager.devices()[0].1;
     let sign = manager
-        .sign_transaction(&fd, &rlp, Some(from.to_bytes()))
+        .sign_transaction(&fd, &rlp, from.to_bytes())
         .unwrap().to_vec();
 
     assert_eq!(exp.signature, hex::encode(sign));

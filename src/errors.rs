@@ -2,6 +2,8 @@ use std::{io, fmt, error};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum HWKeyError {
+    /// Device is unavailable
+    Unavailable,
     /// An unsupported cipher
     CryptoError(String),
     /// Error from HID communication
@@ -24,9 +26,16 @@ impl<'a> From<&'a str> for HWKeyError {
     }
 }
 
+impl From<hidapi::HidError> for HWKeyError {
+    fn from(err: hidapi::HidError) -> Self {
+        HWKeyError::CommError(err.to_string())
+    }
+}
+
 impl fmt::Display for HWKeyError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
+            HWKeyError::Unavailable => write!(f, "HWKey Unavailable"),
             HWKeyError::CryptoError(ref str) => write!(f, "HWKey error: {}", str),
             HWKeyError::CommError(ref str) => write!(f, "Communication protocol error: {}", str),
             HWKeyError::EncodingError(ref str) => write!(f, "Encoding error: {}", str),
@@ -40,7 +49,7 @@ impl error::Error for HWKeyError {
         "HWKey error"
     }
 
-    fn cause(&self) -> Option<&error::Error> {
+    fn cause(&self) -> Option<&dyn error::Error> {
         match *self {
             _ => None,
         }

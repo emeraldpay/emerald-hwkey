@@ -1,0 +1,28 @@
+[package]
+name = "emerald-hwkey"
+description = "Emerald HWKey - Harware Cryptocurrency Key Access"
+version = "0.1.0"
+authors = ["Igor Artamonov <igor@artamonov.email>", "Dmitry Ulanov <dulanov@gmail.com>", "Constantine Kryvomaz <kostiyantynk@gmail.com>"]
+edition = "2018"
+readme = "crates.md"
+repository = "https://github.com/emeraldpay/emerald-hwkey"
+documentation = "https://docs.rs/emerald-hwkey"
+
+[lib]
+name = "emerald_hwkey"
+path = "src/lib.rs"
+
+[dependencies]
+hidapi = "0.4"
+hdpath = "0.3.1"
+hex = "0.4.2"
+log = "0.4.11"
+
+[dev-dependencies]
+tempdir = "0.3.7"
+quickcheck = "0.9.2"
+bencher = "0.1.5"
+simple_logger = "1.6.0"
+serde = "1.0"
+serde_json = "1.0"
+serde_derive = "1.0"

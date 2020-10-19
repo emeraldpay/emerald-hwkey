@@ -1,0 +1,7 @@
+= Hardware Reference
+
+== Ledger
+
+.Application Commands
+- https://github.com/LedgerHQ/app-bitcoin/blob/master/doc/btc.asc - Bitcoin
+- https://github.com/LedgerHQ/app-ethereum/blob/master/doc/ethapp.asc - Ethereum

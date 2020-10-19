@@ -15,9 +15,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 //! # APDU for communication with Ledger HD wallet over HID
-//! For more details about protocol refer to
-//! [APDU](https://github.com/LedgerHQ/blue-app-eth/blob/master/doc/ethapp.asc)
-
 use std::fmt;
 
 pub const APDU_HEADER_SIZE: usize = 0x05;

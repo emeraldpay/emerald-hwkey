@@ -15,34 +15,21 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-//! # Module to work with `HD Wallets`
+//! # Module to work with `Ledger hardware Wallets`
 //!
-//! Currently supports only Ledger Nano S & Ledger Blue
-//! `HD(Hierarchical Deterministic) Wallet` specified in
-//! [BIP32](https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki)
-
 use crate::{
     ledger::{
         comm::ping,
-        apdu::ApduBuilder,
-        comm::sendrecv
     },
     errors::HWKeyError,
 };
-use hex;
 use hidapi::{HidApi, HidDevice, DeviceInfo};
 use std::{
-    str::{from_utf8, FromStr},
     thread,
     time,
 };
 
-/// ECDSA crypto signature length in bytes
-pub const ECDSA_SIGNATURE_BYTES: usize = 65;
-
-const GET_ETH_ADDRESS: u8 = 0x02;
-const SIGN_ETH_TRANSACTION: u8 = 0x04;
-const CHUNK_SIZE: usize = 255;
+pub const CHUNK_SIZE: usize = 255;
 
 const LEDGER_VID: u16 = 0x2c97;
 const LEDGER_S_PID_1: u16 = 0x0001; // for Nano S model with Bitcoin App
@@ -55,8 +42,6 @@ const LEDGER_X_PID_2: u16 = 0x0004; // for Nano X model (in the wild)
 /// Type used for device listing,
 /// String corresponds to file descriptor of the device
 pub type DevicesList = Vec<(String, String)>;
-
-pub type SignatureBytes = [u8; ECDSA_SIGNATURE_BYTES];
 
 ///
 #[derive(Debug)]
@@ -103,97 +88,16 @@ impl LedgerKey {
         })
     }
 
-    /// Get address
-    ///
-    /// # Arguments:
-    /// fd - file descriptor to corresponding HID device
-    /// hd_path - optional HD path, prefixed with count of derivation indexes
-    ///
-    pub fn get_address<A>(
-        &self,
-        _fd: &str,
-        hd_path: Vec<u8>
-    ) -> Result<A, HWKeyError> where A: FromStr {
-        let apdu = ApduBuilder::new(GET_ETH_ADDRESS)
-            .with_data(&hd_path)
-            .build();
-
-        let handle = self.open()?;
-        sendrecv(&handle, &apdu)
-            .and_then(|res: Vec<u8>|
-                     from_utf8(&res[67..])
-                         .map(|ptr| ptr.to_string())
-                         .map_err(|e| {
-                             HWKeyError::EncodingError(format!("Can't parse address: {}", e.to_string()))
-                         })
-            )
-            .and_then(|addr|
-                A::from_str(addr.as_str())
-                    .map_err(|_| HWKeyError::EncodingError("Failed to convert address".to_string()))
-            )
-    }
-
-    /// Sign transaction
-    ///
-    /// # Arguments:
-    /// fd - file descriptor to corresponding HID device
-    /// tr - RLP packed transaction
-    /// hd_path - optional HD path, prefixed with count of derivation indexes
-    ///
-    pub fn sign_transaction(
-        &self,
-        _fd: &str,
-        tr: &[u8],
-        hd_path: Vec<u8>,
-    ) -> Result<SignatureBytes, HWKeyError> {
-
-        let _mock = Vec::new();
-        let (init, cont) = match tr.len() {
-            0..=CHUNK_SIZE => (tr, _mock.as_slice()),
-            _ => tr.split_at(CHUNK_SIZE - hd_path.len()),
-        };
-
-        let init_apdu = ApduBuilder::new(SIGN_ETH_TRANSACTION)
-            .with_p1(0x00)
-            .with_data(&hd_path)
-            .with_data(init)
-            .build();
-
-        if self.device.is_none() {
-            return Err(HWKeyError::OtherError("Device not selected".to_string()));
-        }
-
-        let handle = self.open()?;
-        let mut res = sendrecv(&handle, &init_apdu)?;
-
-        for chunk in cont.chunks(CHUNK_SIZE) {
-            let apdu_cont = ApduBuilder::new(SIGN_ETH_TRANSACTION)
-                .with_p1(0x80)
-                .with_data(chunk)
-                .build();
-            res = sendrecv(&handle, &apdu_cont)?;
-        }
-        debug!("Received signature: {:?}", hex::encode(&res));
-        match res.len() {
-            ECDSA_SIGNATURE_BYTES => {
-                let mut val: SignatureBytes = [0; ECDSA_SIGNATURE_BYTES];
-                val.copy_from_slice(&res);
-
-                Ok(val)
-            }
-            v => Err(HWKeyError::CryptoError(format!(
-                "Invalid signature length. Expected: {}, received: {}",
-                ECDSA_SIGNATURE_BYTES, v
-            ))),
-        }
-    }
-
     /// List all available devices
     pub fn devices(&self) -> DevicesList {
         self.device
             .iter()
             .map(|d| (d.address.clone(), d.fd.clone()))
             .collect()
+    }
+
+    pub fn have_device(&self) -> bool {
+        self.device.is_some()
     }
 
     /// Update device list
@@ -223,7 +127,7 @@ impl LedgerKey {
         Ok(())
     }
 
-    fn open(&self) -> Result<HidDevice, HWKeyError> {
+    pub fn open(&self) -> Result<HidDevice, HWKeyError> {
         if self.device.is_none() {
             return Err(HWKeyError::Unavailable);
         }
@@ -256,9 +160,4 @@ impl LedgerKey {
             target.hid_info
         )))
     }
-}
-
-#[cfg(test)]
-pub mod tests {
-
 }

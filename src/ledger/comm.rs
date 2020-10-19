@@ -45,9 +45,6 @@ pub const SW_INCORRECT_PARAMETERS: [u8; 2] = [0x6b, 0x00];
 pub const SW_USER_CANCEL: [u8; 2] = [0x6A, 0x85];
 
 /// Packs header with Ledgers magic numbers
-/// For more details refer APDU doc:
-/// <https://github.com/LedgerHQ/blue-app-eth/blob/master/doc/ethapp.asc#general-purpose-apdus>
-///
 fn get_hid_header(channel: u16, index: usize) -> [u8; 5] {
     [
         (channel >> 8) as u8,

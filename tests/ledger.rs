@@ -5,15 +5,18 @@ extern crate serde_derive;
 extern crate log;
 extern crate simple_logger;
 
-use std::{env, fs, fmt};
+use std::{env, fs};
 use hdpath::StandardHDPath;
 use hex;
 use log::LevelFilter;
 use simple_logger::SimpleLogger;
 use std::convert::TryFrom;
-use emerald_hwkey::ledger::manager::LedgerKey;
-use std::str::FromStr;
-use std::fmt::{Display, Formatter};
+use emerald_hwkey::{
+    ledger::{
+        manager::LedgerKey,
+        app_ethereum::{EthereumApp, AddressResponse},
+    }
+};
 
 #[derive(Deserialize)]
 struct TestAddress {
@@ -31,20 +34,8 @@ struct TestTx {
     pub signature: String,
 }
 
-struct HexAddress(String);
-
-impl FromStr for HexAddress {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(HexAddress(format!("0x{:}", s)))
-    }
-}
-
-impl Display for HexAddress {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
-    }
+fn hex_address(a: AddressResponse) -> String {
+    format!("0x{:}", a.address)
 }
 
 fn is_ledger_enabled() -> bool {
@@ -77,15 +68,13 @@ pub fn should_get_address_with_ledger() {
     }
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
-
-    assert!(!manager.devices().is_empty());
-
-    let fd = &manager.devices()[0].1;
+    let app = EthereumApp::new(manager);
 
     let addresses = read_test_addresses();
     for address in addresses {
         let hdpath = StandardHDPath::try_from(address.hdpath.as_str()).expect("Invalid HDPath");
-        let act = manager.get_address::<HexAddress>(fd, hdpath.to_bytes()).unwrap();
+        let act = app.get_address(hdpath.to_bytes())
+            .map(hex_address).unwrap();
         assert_eq!(act.to_string(), address.address);
     }
 }
@@ -126,15 +115,15 @@ pub fn sign_1kovan_to_78296f10() {
 fn test_tx_sign(exp: &TestTx) {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
+    let app = EthereumApp::new(manager);
 
     println!("Test: {:}", exp.id);
     let from = exp.from.as_ref().unwrap();
     let from = StandardHDPath::try_from(from.as_str()).expect("invalid from");
 
     let rlp = hex::decode(&exp.unsigned).unwrap();
-    let fd = &manager.devices()[0].1;
-    let sign = manager
-        .sign_transaction(&fd, &rlp, from.to_bytes())
+    let sign = app
+        .sign_transaction(&rlp, from.to_bytes())
         .unwrap().to_vec();
 
     assert_eq!(exp.signature, hex::encode(sign));

@@ -14,12 +14,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-//! # Module to work with `HD Wallets`
-//!
-//! Currently supports only Ledger Nano S & Ledger Blue
-//! `HD(Hierarchical Deterministic) Wallet` specified in
-//! [BIP32](https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki)
-
 mod apdu;
 mod comm;
 pub mod manager;
+pub mod app_ethereum;

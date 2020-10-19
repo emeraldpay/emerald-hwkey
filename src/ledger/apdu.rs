@@ -23,7 +23,6 @@ use std::fmt;
 pub const APDU_HEADER_SIZE: usize = 0x05;
 
 ///
-#[repr(packed)]
 pub struct APDU {
     pub cla: u8,
     pub ins: u8,

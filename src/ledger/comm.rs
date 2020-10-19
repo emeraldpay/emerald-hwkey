@@ -18,7 +18,7 @@ limitations under the License.
 //!
 
 use hex;
-use hidapi::{HidDeviceInfo, HidDevice};
+use hidapi::HidDevice;
 use log;
 use std::{cmp::min, mem::size_of_val, slice};
 use crate::errors::HWKeyError;

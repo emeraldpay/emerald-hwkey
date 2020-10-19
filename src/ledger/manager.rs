@@ -36,7 +36,6 @@ use std::{
     thread,
     time,
 };
-use std::convert::TryFrom;
 
 /// ECDSA crypto signature length in bytes
 pub const ECDSA_SIGNATURE_BYTES: usize = 65;
@@ -150,7 +149,7 @@ impl LedgerKey {
 
         let _mock = Vec::new();
         let (init, cont) = match tr.len() {
-            0...CHUNK_SIZE => (tr, _mock.as_slice()),
+            0..=CHUNK_SIZE => (tr, _mock.as_slice()),
             _ => tr.split_at(CHUNK_SIZE - hd_path.len()),
         };
 
@@ -199,7 +198,8 @@ impl LedgerKey {
 
     /// Update device list
     pub fn connect(&mut self) -> Result<(), HWKeyError> {
-        self.hid.refresh_devices();
+        self.hid.refresh_devices()
+            .map_err(|_| HWKeyError::CommError("Failed to refresh".to_string()))?;
 
         let current = self.hid.device_list().find(|hid_info| {
             debug!("device {:?}", hid_info);

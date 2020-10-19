@@ -3,20 +3,17 @@ extern crate emerald_hwkey;
 extern crate serde_derive;
 #[macro_use]
 extern crate log;
+extern crate simple_logger;
 
 use std::{env, fs, fmt};
 use hdpath::StandardHDPath;
 use hex;
-use log::{Level, LevelFilter};
-use simple_logger::init_with_level;
+use log::LevelFilter;
+use simple_logger::SimpleLogger;
 use std::convert::TryFrom;
-use emerald_hwkey::ledger::manager::{LedgerKey};
+use emerald_hwkey::ledger::manager::LedgerKey;
 use std::str::FromStr;
 use std::fmt::{Display, Formatter};
-
-const ETC_DERIVATION_PATH: [u8; 21] = [
-    5, 0x80, 0, 0, 44, 0x80, 0, 0, 60, 0x80, 0x02, 0x73, 0xd0, 0, 0, 0, 0, 0, 0, 0, 0,
-]; // 44'/60'/160720'/0/0
 
 #[derive(Deserialize)]
 struct TestAddress {
@@ -57,19 +54,6 @@ fn is_ledger_enabled() -> bool {
     }
 }
 
-/// Config:
-/// * ADDR0 - address on 44'/60'/160720'/0'/0
-/// * SIGN1 - hex of a signed transaction, 1 ETH to 78296F1058dD49C5D6500855F59094F0a2876397, nonce 0, gas_price 21 gwei, gas 21000
-fn get_ledger_conf(name: &str) -> String {
-    let mut path = String::new();
-    path.push_str("EMRLD_HWKEY_TEST_LEDGER_");
-    path.push_str(name);
-    match env::var(path) {
-        Ok(v) => v,
-        Err(_) => "NOT_SET".to_string(),
-    }
-}
-
 fn read_test_addresses() -> Vec<TestAddress> {
     let json = fs::read_to_string("./testdata/ledger/address.json")
         .expect("./testdata/ledger/address.json is not available");
@@ -86,7 +70,7 @@ fn read_test_txes() -> Vec<TestTx> {
 
 #[test]
 pub fn should_get_address_with_ledger() {
-    simple_logger::init_with_level(Level::Trace).unwrap();
+    SimpleLogger::new().with_level(LevelFilter::Trace).init().unwrap();
     if !is_ledger_enabled() {
         warn!("Ledger test is disabled");
         return;

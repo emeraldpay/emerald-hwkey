@@ -36,6 +36,7 @@ use std::{
     thread,
     time,
 };
+use std::convert::TryFrom;
 
 /// ECDSA crypto signature length in bytes
 pub const ECDSA_SIGNATURE_BYTES: usize = 65;
@@ -109,33 +110,28 @@ impl LedgerKey {
     /// fd - file descriptor to corresponding HID device
     /// hd_path - optional HD path, prefixed with count of derivation indexes
     ///
-    pub fn get_address(
+    pub fn get_address<A>(
         &self,
         _fd: &str,
-        hd_path: Vec<u8>,
-    ) -> Result<String, HWKeyError> {
-
+        hd_path: Vec<u8>
+    ) -> Result<A, HWKeyError> where A: FromStr {
         let apdu = ApduBuilder::new(GET_ETH_ADDRESS)
             .with_data(&hd_path)
             .build();
 
         let handle = self.open()?;
-        let addr = sendrecv(&handle, &apdu)
-            .and_then(|res| match res.len() {
-                107 => Ok(res),
-                _ => Err(HWKeyError::CommError(
-                    "Address read returned invalid data length".to_string(),
-                )),
-            })
-            .and_then(|res: Vec<u8>| {
-                from_utf8(&res[67..107])
-                    .map(|ptr| ptr.to_string())
-                    .map_err(|e| {
-                        HWKeyError::EncodingError(format!("Can't parse address: {}", e.to_string()))
-                    })
-            })?;
-
-        Ok(addr)
+        sendrecv(&handle, &apdu)
+            .and_then(|res: Vec<u8>|
+                     from_utf8(&res[67..])
+                         .map(|ptr| ptr.to_string())
+                         .map_err(|e| {
+                             HWKeyError::EncodingError(format!("Can't parse address: {}", e.to_string()))
+                         })
+            )
+            .and_then(|addr|
+                A::from_str(addr.as_str())
+                    .map_err(|_| HWKeyError::EncodingError("Failed to convert address".to_string()))
+            )
     }
 
     /// Sign transaction

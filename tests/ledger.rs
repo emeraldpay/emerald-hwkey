@@ -4,13 +4,15 @@ extern crate serde_derive;
 #[macro_use]
 extern crate log;
 
-use std::{env, fs};
+use std::{env, fs, fmt};
 use hdpath::StandardHDPath;
 use hex;
 use log::{Level, LevelFilter};
 use simple_logger::init_with_level;
 use std::convert::TryFrom;
-use emerald_hwkey::ledger::manager::LedgerKey;
+use emerald_hwkey::ledger::manager::{LedgerKey};
+use std::str::FromStr;
+use std::fmt::{Display, Formatter};
 
 const ETC_DERIVATION_PATH: [u8; 21] = [
     5, 0x80, 0, 0, 44, 0x80, 0, 0, 60, 0x80, 0x02, 0x73, 0xd0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -30,6 +32,22 @@ struct TestTx {
     pub raw: String,
     pub unsigned: String,
     pub signature: String,
+}
+
+struct HexAddress(String);
+
+impl FromStr for HexAddress {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(HexAddress(format!("0x{:}", s)))
+    }
+}
+
+impl Display for HexAddress {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
 }
 
 fn is_ledger_enabled() -> bool {
@@ -66,10 +84,6 @@ fn read_test_txes() -> Vec<TestTx> {
     result
 }
 
-fn as_ethereum_address(hex: String) -> String {
-    "0x".to_owned() + hex.as_str()
-}
-
 #[test]
 pub fn should_get_address_with_ledger() {
     simple_logger::init_with_level(Level::Trace).unwrap();
@@ -87,8 +101,8 @@ pub fn should_get_address_with_ledger() {
     let addresses = read_test_addresses();
     for address in addresses {
         let hdpath = StandardHDPath::try_from(address.hdpath.as_str()).expect("Invalid HDPath");
-        let act = manager.get_address(fd, hdpath.to_bytes()).unwrap();
-        assert_eq!(as_ethereum_address(act), address.address);
+        let act = manager.get_address::<HexAddress>(fd, hdpath.to_bytes()).unwrap();
+        assert_eq!(act.to_string(), address.address);
     }
 }
 

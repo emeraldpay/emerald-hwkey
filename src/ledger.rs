@@ -18,3 +18,4 @@ mod apdu;
 mod comm;
 pub mod manager;
 pub mod app_ethereum;
+pub mod app_bitcoin;

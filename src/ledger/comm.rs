@@ -68,13 +68,13 @@ fn check_recv_frame(frame: &[u8], channel: u16, index: usize) -> Result<(), HWKe
     let seq = (frame[3] as usize) << 8 | (frame[4] as usize);
     if seq != index {
         return Err(HWKeyError::CommError(format!(
-            "Invalid sequence. {:?} != {:?}",
-            seq, index
+            "Invalid sequence. {:?}  != {:?} (act != exp) of {:}",
+            seq, index, hex::encode(&frame)
         )));
     }
 
     if index == 0 && size_of_val(frame) < 7 {
-        return Err(HWKeyError::CommError("Invalid frame size".to_string()));
+        return Err(HWKeyError::CommError(format!("Invalid frame size: {:}", size_of_val(frame))));
     }
 
     Ok(())
@@ -98,7 +98,7 @@ fn set_data(data: &mut [u8], itr: &mut slice::Iter<u8>, max: usize) {
 
 /// Check `status word`, if invalid coverts it
 /// to the proper error message
-fn sw_to_error(sw_h: u8, sw_l: u8) -> Result<(), HWKeyError> {
+pub fn sw_to_error(sw_h: u8, sw_l: u8) -> Result<(), HWKeyError> {
     match [sw_l, sw_h] {
         SW_NO_ERROR => Ok(()),
         SW_WRONG_LENGTH => Err(HWKeyError::CommError("Incorrect length".to_string())),
@@ -115,8 +115,7 @@ fn sw_to_error(sw_h: u8, sw_l: u8) -> Result<(), HWKeyError> {
     }
 }
 
-///
-pub fn sendrecv(dev: &HidDevice, apdu: &APDU) -> Result<Vec<u8>, HWKeyError> {
+pub fn send(dev: &HidDevice, apdu: &APDU) -> Result<(), HWKeyError> {
     let mut frame_index: usize = 0;
     let mut data_itr = apdu.data.iter();
     let mut init_sent = false;
@@ -131,7 +130,7 @@ pub fn sendrecv(dev: &HidDevice, apdu: &APDU) -> Result<Vec<u8>, HWKeyError> {
 
         frame[1..6].clone_from_slice(&get_hid_header(channel, frame_index));
         if !init_sent {
-            frame[6..13].clone_from_slice(&get_init_header(apdu));
+            frame[6..13].clone_from_slice(&get_init_header(&apdu));
             init_sent = true;
             set_data(&mut frame[13..], &mut data_itr, INIT_DATA_SIZE);
         } else {
@@ -148,15 +147,19 @@ pub fn sendrecv(dev: &HidDevice, apdu: &APDU) -> Result<Vec<u8>, HWKeyError> {
         };
         frame_index += 1;
     }
+    Ok(())
+}
 
-    debug!("\t |- read response");
-    frame_index = 0;
+pub fn recv_direct(dev: &HidDevice) -> Result<Vec<u8>, HWKeyError> {
+    let mut frame_index: usize = 0;
+    let channel = 0x101;
+
+    debug!("<< read response");
     let mut data: Vec<u8> = Vec::new();
     let datalen: usize;
     let mut recvlen: usize = 0;
     let mut frame: [u8; HID_RPT_SIZE] = [0u8; HID_RPT_SIZE];
     let frame_size = dev.read(&mut frame)?;
-
     check_recv_frame(&frame, channel, frame_index)?;
     datalen = (frame[5] as usize) << 8 | (frame[6] as usize);
     data.extend_from_slice(&frame[7..frame_size]);
@@ -164,10 +167,13 @@ pub fn sendrecv(dev: &HidDevice, apdu: &APDU) -> Result<Vec<u8>, HWKeyError> {
     recvlen += frame_size;
     frame_index += 1;
     debug!(
-        "\t\t|-- init data: {:?}, recvlen: {}, datalen: {}",
-        hex::encode(&data),
+        "<<\t|-- recvlen: {}, datalen: {}",
         recvlen,
         datalen
+    );
+    debug!(
+        "<<\t|-- init data: {:?}",
+        hex::encode(&data)
     );
 
     while recvlen < datalen {
@@ -179,17 +185,28 @@ pub fn sendrecv(dev: &HidDevice, apdu: &APDU) -> Result<Vec<u8>, HWKeyError> {
         recvlen += frame_size;
         frame_index += 1;
         debug!(
-            "\t\t|-- cont_{:?} size:{:?}, data: {:?}",
+            "<<\t|-- cont_{:?} size:{:?}, data: {:?}",
             frame_index,
             data.len(),
             hex::encode(&data)
         );
     }
     data.truncate(datalen);
+    Ok(data)
+}
+
+pub fn recv(dev: &HidDevice) -> Result<Vec<u8>, HWKeyError> {
+    let mut data = recv_direct(dev)?;
     match sw_to_error(data.pop().unwrap(), data.pop().unwrap()) {
         Ok(_) => Ok(data),
         Err(e) => Err(e),
     }
+}
+
+///
+pub fn sendrecv(dev: &HidDevice, apdu: &APDU) -> Result<Vec<u8>, HWKeyError> {
+    send(dev, apdu)?;
+    recv(dev)
 }
 
 /// Ping Ledger device, returns `Ok(true)` if available. `Ok(false)` is unavailable (i.e., ping

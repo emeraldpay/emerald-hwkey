@@ -1,11 +1,22 @@
-use crate::ledger::manager::LedgerKey;
+use crate::ledger::manager::{LedgerKey, CHUNK_SIZE};
 use crate::ledger::apdu::ApduBuilder;
 use crate::errors::HWKeyError;
-use crate::ledger::comm::sendrecv;
+use crate::ledger::comm::{sendrecv, send, recv, recv_direct, INIT_HEADER_SIZE, sw_to_error};
 use std::convert::TryFrom;
-use std::str::from_utf8;
+use std::str::{from_utf8, FromStr};
+use bitcoin::{Transaction, OutPoint, Script, Address, Network, VarInt, PublicKey, SigHashType, TxOut, TxIn};
+use bitcoin::consensus::{deserialize, Encodable, serialize};
+use byteorder::{BigEndian, WriteBytesExt, LittleEndian};
+use hidapi::HidDevice;
+use hdpath::StandardHDPath;
+use bitcoin::blockdata::script::Builder;
+use bitcoin::blockdata::opcodes;
 
 const COMMAND_GET_ADDRESS: u8 = 0x40;
+const COMMAND_GET_UNTRUSTED_INPUT: u8 = 0x42;
+const COMMAND_UNTRUSTED_HASH_TX: u8 = 0x44;
+const COMMAND_UNTRUSTED_HASH_SIGN: u8 = 0x48;
+const COMMAND_HASH_INPUT_FINALIZE_FULL: u8 = 0x4A;
 
 #[derive(Copy, Clone)]
 #[repr(u8)]
@@ -103,6 +114,30 @@ impl TryFrom<Vec<u8>> for AddressResponse {
     }
 }
 
+#[derive(Clone)]
+pub struct SignTx {
+    pub network: Network,
+    pub raw: Vec<u8>,
+    pub inputs: Vec<UnsignedInput>,
+}
+
+#[derive(Clone)]
+pub struct UnsignedInput {
+    pub raw: Vec<u8>,
+    pub vout: u32,
+    pub amount: u64,
+    pub hd_path: StandardHDPath
+}
+
+#[derive(Clone)]
+struct InputDetails {
+    prev_tx: Transaction,
+    prev_tx_parsed: TxIn,
+    amount: u64,
+    redeem: Script,
+    hd_path: StandardHDPath
+}
+
 impl BitcoinApp {
 
     pub fn new(ledger: LedgerKey) -> BitcoinApp {
@@ -115,14 +150,205 @@ impl BitcoinApp {
     /// hd_path - HD path, prefixed with count of derivation indexes
     ///
     pub fn get_address(&self, hd_path: Vec<u8>, opts: GetAddressOpts) -> Result<AddressResponse, HWKeyError> {
+        let handle = self.ledger.open()?;
+        BitcoinApp::get_address_internal(&handle, hd_path, opts)
+    }
+
+    fn get_address_internal(device: &HidDevice, hd_path: Vec<u8>, opts: GetAddressOpts) -> Result<AddressResponse, HWKeyError> {
         let apdu = ApduBuilder::new(COMMAND_GET_ADDRESS)
             .with_data(&hd_path)
             .with_p1(if opts.confirmation {1} else {0})
             .with_p2(opts.address_type as u8)
             .build();
-        let handle = self.ledger.open()?;
-        sendrecv(&handle, &apdu)
+        sendrecv(&device, &apdu)
             .and_then(|res| AddressResponse::try_from(res))
+    }
+
+    fn witness_redeem(pubkey: &Vec<u8>, network: Network) -> Script {
+        let pubkey = PublicKey::from_slice(pubkey.as_slice()).unwrap();
+        let address = Address::p2wpkh(&PublicKey::from_slice(&pubkey.key.serialize()).unwrap(), network).unwrap();
+        let base = address.script_pubkey();
+
+        Builder::new()
+            .push_opcode(opcodes::all::OP_DUP)
+            .push_opcode(opcodes::all::OP_HASH160)
+            .push_slice(&base[2..])
+            .push_opcode(opcodes::all::OP_EQUALVERIFY)
+            .push_opcode(opcodes::all::OP_CHECKSIG)
+            .into_script()
+    }
+
+    /// Supports only Trusted Segwit tx.
+    /// Trusted Segwit is supported only after 1.4 of the Ledger Firmware
+    pub fn sign_tx(&self, config: &SignTx) -> Result<Vec<Vec<u8>>, HWKeyError> {
+        let device = self.ledger.open()?;
+        // Protocol:
+        // 1. The transaction shall be processed first with all inputs having a null script length
+        //    (to be done twice if the dongle has been powercycled to retrieve the authorization code)
+        // 2. Then each input to sign shall be processed as part of a pseudo transaction with a single
+        //    input and no outputs.
+        let tx = deserialize::<Transaction>(config.raw.as_slice())
+            .map_err(|_| HWKeyError::InputError("Invalid tx data".to_string()))?;
+
+        let mut inputs: Vec<InputDetails> = Vec::with_capacity(tx.input.len());
+
+        for (i, ui) in config.inputs.iter().enumerate() {
+            let address = BitcoinApp::get_address_internal(&device, ui.hd_path.to_bytes(), GetAddressOpts::default())?;
+            let prev_tx = deserialize::<Transaction>(ui.raw.as_slice())
+                .map_err(|_| HWKeyError::InputError("Invalid input tx data".to_string()))?;;
+            let txid = prev_tx.txid().clone();
+            inputs.push(InputDetails {
+                prev_tx,
+                prev_tx_parsed: TxIn {
+                    previous_output: OutPoint::new(txid, ui.vout),
+                    ..Default::default()
+                },
+                amount: ui.amount,
+                hd_path: ui.hd_path.clone(),
+                redeem: BitcoinApp::witness_redeem(&address.pubkey, config.network)
+            });
+        }
+
+        // first pass
+        for (i, input) in inputs.iter().enumerate() {
+            let first = i == 0;
+            self.start_untrusted_hash_tx(&device, first,i, &inputs, &tx, false)?;
+        }
+
+        // finalize to get hash
+        self.finalize_inputs(&device, &tx)?;
+
+        // make actual signatures
+        let mut signatures = Vec::with_capacity(inputs.len());
+        for (i, input) in inputs.iter().enumerate() {
+            let ic = input.clone();
+            self.start_untrusted_hash_tx(&device, false,i,&vec![ic], &tx, true)?;
+            let mut signature = self.untrusted_hash_sign(&device, input)?;
+            // Signed hash, as ASN-1 encoded R & S components. Mask first byte with 0xFE
+            signature[0] = signature[0] & 0xfe;
+            signatures.push(signature);
+        }
+
+        Ok(signatures)
+    }
+
+    // see https://github.com/LedgerHQ/app-bitcoin/blob/master/doc/btc.asc#untrusted-hash-transaction-input-start
+    fn start_untrusted_hash_tx(&self, device: &HidDevice, is_new_tx: bool, input_index: usize, inputs: &Vec<InputDetails>, tx: &Transaction, second_pass: bool) -> Result<(), HWKeyError> {
+        let mut data: Vec<u8> = Vec::new();
+        // needs version
+        data.write_u32::<LittleEndian>(tx.version as u32);
+        data.extend_from_slice(serialize(&VarInt(inputs.len() as u64)).as_slice());
+        for (i, ti) in inputs.iter().enumerate() {
+            // 0x02 if the input is passed as a Segregated Witness Input
+            data.push(0x02);
+            // original 36 bytes prevout
+            data.extend_from_slice(serialize(&ti.prev_tx_parsed.previous_output).as_slice());
+            // and the original 8 bytes little endian amount associated to this input
+            data.write_u64::<LittleEndian>(ti.amount);
+
+            // The transaction shall be processed first with all inputs having a null script length
+            // Then each input to sign shall be processed as part of a pseudo transaction with a single input and no outputs.
+            // i.e. include scripts only on second pass
+            if second_pass && i == input_index {
+                // must be witness redeem
+                // serialize() encodes size
+                data.extend_from_slice(serialize(&ti.redeem).as_slice());
+            } else {
+                // provide only 0 size
+                data.extend_from_slice(serialize(&VarInt(0u64)).as_slice());
+            };
+            // sequence
+            data.extend_from_slice(serialize(&ti.prev_tx_parsed.sequence).as_slice());
+        }
+
+
+        let outputs_count: u64 = if second_pass {
+            // no outputs on second pass
+            0
+        } else {
+            tx.output.len() as u64
+        };
+        data.extend_from_slice(serialize(&VarInt(outputs_count)).as_slice());
+
+
+        let data = data.chunks(CHUNK_SIZE - 28);
+        for (i, chunk) in data.enumerate() {
+            let first = i == 0;
+            // 00 : first transaction data block
+            // 80 : subsequent transaction data block
+            let p1 = if first {
+                0x00
+            } else {
+                0x80
+            };
+            // for the first block only:
+            // 00 : start signing a new transaction
+            // 02 : start signing a new transaction containing Segregated Witness Inputs
+            // 80 : continue signing another input of the current transaction
+            let p2 = if first {
+                if is_new_tx {
+                    0x02
+                } else {
+                    0x80
+                }
+            } else {
+                0x00
+            };
+            let apdu = ApduBuilder::new(COMMAND_UNTRUSTED_HASH_TX)
+                .with_p1(p1)
+                .with_p2(p2)
+                .with_data(chunk)
+                .build();
+            sendrecv(&device, &apdu)?;
+        }
+        Ok(())
+    }
+
+    fn untrusted_hash_sign(&self, device: &HidDevice, input: &InputDetails) -> Result<Vec<u8>, HWKeyError> {
+        let mut data: Vec<u8> = Vec::new();
+        data.extend_from_slice(input.hd_path.to_bytes().as_slice());
+        data.push(0x00); // RFU (0x00)
+        data.write_u32::<LittleEndian>(0); //locktime
+        data.push(SigHashType::All as u8); //SigHashType
+        let apdu = ApduBuilder::new(COMMAND_UNTRUSTED_HASH_SIGN)
+            .with_p1(0x00)
+            .with_p2(0x00)
+            .with_data(data.as_slice())
+            .build();
+        sendrecv(&device, &apdu)
+    }
+
+    fn finalize_inputs(&self, device: &HidDevice, tx: &Transaction) -> Result<(), HWKeyError> {
+        let mut data: Vec<u8> = Vec::new();
+        data.extend_from_slice(serialize(&VarInt(tx.output.len() as u64)).as_slice());
+        for output in &tx.output {
+            data.write_u64::<LittleEndian>(output.value);
+            let script = &output.script_pubkey;
+            // serialize() encodes script size
+            data.extend_from_slice(serialize(script).as_slice());
+        }
+
+        let data = data.chunks(CHUNK_SIZE - 28);
+        let data_len = data.len();
+        for (i, chunk) in data.enumerate() {
+            let first = i == 0;
+            let last =  i == data_len - 1;
+            let apdu = ApduBuilder::new(COMMAND_HASH_INPUT_FINALIZE_FULL)
+                // 00 : more input data to be sent
+                // 80 : last input data block to be sent
+                // FF : BIP 32 path specified for the change address
+                .with_p1(if !last {0x00} else {0x80})
+                .with_p2(0x00)
+                .with_data(chunk)
+                .build();
+            let result = sendrecv(&device, &apdu)?;
+            if last {
+                if result.ne(&vec![0x00u8, 0x00u8]) {
+                    return Err(HWKeyError::CryptoError("Validation required".to_string()))
+                }
+            }
+        }
+        Ok(())
     }
 
 }

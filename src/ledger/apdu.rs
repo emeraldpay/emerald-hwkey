@@ -34,7 +34,7 @@ impl fmt::Debug for APDU {
         let d = vec![].clone_from(&self.data);
         write!(
             f,
-            "APDU {{ cla: {}, ins: {}, p1: {}, p2: {}, len: {}, data: {:?} }}",
+            "APDU {{ cla: 0x{:02x}, ins: 0x{:02x}, p1: 0x{:02x}, p2: 0x{:02x}, len: {}, data: {:?} }}",
             self.cla, self.ins, self.p1, self.p2, self.len, d
         )
     }

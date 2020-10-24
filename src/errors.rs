@@ -12,6 +12,8 @@ pub enum HWKeyError {
     EncodingError(String),
     /// Something else
     OtherError(String),
+    /// On invalid input to the library
+    InputError(String)
 }
 
 impl From<io::Error> for HWKeyError {
@@ -40,6 +42,7 @@ impl fmt::Display for HWKeyError {
             HWKeyError::CommError(ref str) => write!(f, "Communication protocol error: {}", str),
             HWKeyError::EncodingError(ref str) => write!(f, "Encoding error: {}", str),
             HWKeyError::OtherError(ref str) => write!(f, "HWKey other error: {}", str),
+            HWKeyError::InputError(ref str) => write!(f, "HWKey invalid input: {}", str)
         }
     }
 }

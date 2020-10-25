@@ -3,11 +3,11 @@ use crate::{
     ledger::{
         apdu::ApduBuilder,
         manager::{LedgerKey, CHUNK_SIZE},
-        comm::{sendrecv, send, recv, recv_direct, INIT_HEADER_SIZE, sw_to_error}
+        comm::{sendrecv}
     }
 };
 use std::convert::TryFrom;
-use std::str::{from_utf8, FromStr};
+use std::str::{from_utf8};
 use bitcoin::{
     Transaction,
     OutPoint,
@@ -17,22 +17,22 @@ use bitcoin::{
     VarInt,
     PublicKey,
     SigHashType,
-    TxOut,
     TxIn,
-    consensus::{deserialize, Encodable, serialize},
+    consensus::{deserialize, serialize},
     blockdata::{
         script::Builder,
         opcodes
     },
     util::psbt::serialize::Serialize
 };
-use byteorder::{BigEndian, WriteBytesExt, LittleEndian};
+use byteorder::{WriteBytesExt, LittleEndian};
 use hidapi::HidDevice;
 use hdpath::StandardHDPath;
 use sha2::{Sha256, Digest};
 use ripemd160::Ripemd160;
 
 const COMMAND_GET_ADDRESS: u8 = 0x40;
+#[allow(dead_code)]
 const COMMAND_GET_UNTRUSTED_INPUT: u8 = 0x42;
 const COMMAND_UNTRUSTED_HASH_TX: u8 = 0x44;
 const COMMAND_UNTRUSTED_HASH_SIGN: u8 = 0x48;
@@ -247,13 +247,13 @@ impl BitcoinApp {
 
         let mut inputs: Vec<InputDetails> = Vec::with_capacity(tx.input.len());
 
-        for (i, ui) in config.inputs.iter().enumerate() {
+        for ui in config.inputs.iter() {
             let address = BitcoinApp::get_address_internal(&device, ui.hd_path.to_bytes(), GetAddressOpts {
                 network: config.network,
                 ..GetAddressOpts::default()
             })?;
             let prev_tx = deserialize::<Transaction>(ui.raw.as_slice())
-                .map_err(|_| HWKeyError::InputError("Invalid input tx data".to_string()))?;;
+                .map_err(|_| HWKeyError::InputError("Invalid input tx data".to_string()))?;
             let txid = prev_tx.txid().clone();
             inputs.push(InputDetails {
                 prev_tx,
@@ -268,7 +268,7 @@ impl BitcoinApp {
         }
 
         // first pass
-        for (i, input) in inputs.iter().enumerate() {
+        for (i, _) in inputs.iter().enumerate() {
             let first = i == 0;
             self.start_untrusted_hash_tx(&device, first,i, &inputs, &tx, false)?;
         }
@@ -294,7 +294,8 @@ impl BitcoinApp {
     fn start_untrusted_hash_tx(&self, device: &HidDevice, is_new_tx: bool, input_index: usize, inputs: &Vec<InputDetails>, tx: &Transaction, second_pass: bool) -> Result<(), HWKeyError> {
         let mut data: Vec<u8> = Vec::new();
         // needs version
-        data.write_u32::<LittleEndian>(tx.version as u32);
+        data.write_u32::<LittleEndian>(tx.version as u32)
+            .map_err(|_| HWKeyError::EncodingError("Failed to encode version".to_string()))?;
         data.extend_from_slice(serialize(&VarInt(inputs.len() as u64)).as_slice());
         for (i, ti) in inputs.iter().enumerate() {
             // 0x02 if the input is passed as a Segregated Witness Input
@@ -302,7 +303,8 @@ impl BitcoinApp {
             // original 36 bytes prevout
             data.extend_from_slice(serialize(&ti.prev_tx_parsed.previous_output).as_slice());
             // and the original 8 bytes little endian amount associated to this input
-            data.write_u64::<LittleEndian>(ti.amount);
+            data.write_u64::<LittleEndian>(ti.amount)
+                .map_err(|_| HWKeyError::EncodingError("Failed to encode amount".to_string()))?;
 
             // The transaction shall be processed first with all inputs having a null script length
             // Then each input to sign shall be processed as part of a pseudo transaction with a single input and no outputs.
@@ -366,7 +368,8 @@ impl BitcoinApp {
         let mut data: Vec<u8> = Vec::new();
         data.extend_from_slice(input.hd_path.to_bytes().as_slice());
         data.push(0x00); // RFU (0x00)
-        data.write_u32::<LittleEndian>(0); //locktime
+        data.write_u32::<LittleEndian>(0) //locktime
+            .map_err(|_| HWKeyError::EncodingError("Failed to encode locktime".to_string()))?;
         data.push(SigHashType::All as u8); //SigHashType
         let apdu = ApduBuilder::new(COMMAND_UNTRUSTED_HASH_SIGN)
             .with_p1(0x00)
@@ -380,7 +383,8 @@ impl BitcoinApp {
         let mut data: Vec<u8> = Vec::new();
         data.extend_from_slice(serialize(&VarInt(tx.output.len() as u64)).as_slice());
         for output in &tx.output {
-            data.write_u64::<LittleEndian>(output.value);
+            data.write_u64::<LittleEndian>(output.value)
+                .map_err(|_| HWKeyError::EncodingError("Failed to encode amount".to_string()))?;
             let script = &output.script_pubkey;
             // serialize() encodes script size
             data.extend_from_slice(serialize(script).as_slice());
@@ -389,7 +393,6 @@ impl BitcoinApp {
         let data = data.chunks(CHUNK_SIZE - 28);
         let data_len = data.len();
         for (i, chunk) in data.enumerate() {
-            let first = i == 0;
             let last =  i == data_len - 1;
             let apdu = ApduBuilder::new(COMMAND_HASH_INPUT_FINALIZE_FULL)
                 // 00 : more input data to be sent

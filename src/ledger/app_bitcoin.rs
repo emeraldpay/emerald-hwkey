@@ -1,16 +1,36 @@
-use crate::ledger::manager::{LedgerKey, CHUNK_SIZE};
-use crate::ledger::apdu::ApduBuilder;
-use crate::errors::HWKeyError;
-use crate::ledger::comm::{sendrecv, send, recv, recv_direct, INIT_HEADER_SIZE, sw_to_error};
+use crate::{
+    errors::HWKeyError,
+    ledger::{
+        apdu::ApduBuilder,
+        manager::{LedgerKey, CHUNK_SIZE},
+        comm::{sendrecv, send, recv, recv_direct, INIT_HEADER_SIZE, sw_to_error}
+    }
+};
 use std::convert::TryFrom;
 use std::str::{from_utf8, FromStr};
-use bitcoin::{Transaction, OutPoint, Script, Address, Network, VarInt, PublicKey, SigHashType, TxOut, TxIn};
-use bitcoin::consensus::{deserialize, Encodable, serialize};
+use bitcoin::{
+    Transaction,
+    OutPoint,
+    Script,
+    Address,
+    Network,
+    VarInt,
+    PublicKey,
+    SigHashType,
+    TxOut,
+    TxIn,
+    consensus::{deserialize, Encodable, serialize},
+    blockdata::{
+        script::Builder,
+        opcodes
+    },
+    util::psbt::serialize::Serialize
+};
 use byteorder::{BigEndian, WriteBytesExt, LittleEndian};
 use hidapi::HidDevice;
 use hdpath::StandardHDPath;
-use bitcoin::blockdata::script::Builder;
-use bitcoin::blockdata::opcodes;
+use sha2::{Sha256, Digest};
+use ripemd160::Ripemd160;
 
 const COMMAND_GET_ADDRESS: u8 = 0x40;
 const COMMAND_GET_UNTRUSTED_INPUT: u8 = 0x42;
@@ -18,7 +38,7 @@ const COMMAND_UNTRUSTED_HASH_TX: u8 = 0x44;
 const COMMAND_UNTRUSTED_HASH_SIGN: u8 = 0x48;
 const COMMAND_HASH_INPUT_FINALIZE_FULL: u8 = 0x4A;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[repr(u8)]
 pub enum AddressType {
     ///  legacy address
@@ -35,21 +55,26 @@ pub struct BitcoinApp {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct AddressResponse {
-    pub pubkey: Vec<u8>,
-    pub address: String,
+    pub pubkey: PublicKey,
+    pub address: Address,
     pub chaincode: Vec<u8>
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct GetAddressOpts {
     pub address_type: AddressType,
-    pub confirmation: bool
+    pub confirmation: bool,
+    pub verify_string: bool,
+    pub network: Network,
 }
 
 impl Default for GetAddressOpts {
     fn default() -> Self {
         GetAddressOpts {
             address_type: AddressType::Bench32,
-            confirmation: false
+            confirmation: false,
+            verify_string: true,
+            network: Network::Bitcoin
         }
     }
 }
@@ -70,10 +95,12 @@ impl GetAddressOpts {
     }
 }
 
-impl TryFrom<Vec<u8>> for AddressResponse {
+impl TryFrom<(Vec<u8>, GetAddressOpts)> for AddressResponse {
     type Error = HWKeyError;
 
-    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+    fn try_from(full: (Vec<u8>, GetAddressOpts)) -> Result<Self, Self::Error> {
+        let value = full.0;
+        let opts = full.1;
         if value.is_empty() {
             return Err(HWKeyError::EncodingError("Empty data".to_string()))
         }
@@ -84,6 +111,10 @@ impl TryFrom<Vec<u8>> for AddressResponse {
             ))
         }
         let pubkey = &value[1..pubkey_len+1];
+        let pubkey = PublicKey::from_slice(pubkey)
+            .map_err(|_| HWKeyError::CryptoError("Invalid public key".to_string()))?;
+        let pubkey_comp = PublicKey::from_slice(&pubkey.key.serialize())
+            .map_err(|_| HWKeyError::CryptoError("Invalid public key".to_string()))?;
 
         let address_len = value[pubkey_len + 1] as usize;
         let address_start = 1 + pubkey_len + 1;
@@ -93,10 +124,35 @@ impl TryFrom<Vec<u8>> for AddressResponse {
                 format!("Address cutoff. {:?} > {:?} as {:?}..{:?} for {:?}", address_end, value.len(), address_start, address_end, address_len)
             ))
         }
-        let address = &value[address_start..address_end];
-        let address = from_utf8(address).map(|a| a.to_string())
-            .map_err(|e| HWKeyError::EncodingError(format!("Can't parse address: {}", e.to_string()))
-            )?;
+
+        let address = match opts.address_type {
+            AddressType::Bench32 => Address::p2wpkh(&pubkey_comp, opts.network)
+                .map_err(|_| HWKeyError::CryptoError("Invalid Pubkey".to_string()))?,
+            AddressType::SegwitCompat => {
+                let mut hash256 = Sha256::new();
+                hash256.update(pubkey_comp.serialize());
+                let mut hash160 = Ripemd160::new();
+                hash160.update(hash256.finalize());
+                let script = Builder::new()
+                    .push_opcode(opcodes::all::OP_PUSHBYTES_0)
+                    .push_slice(&hash160.finalize())
+                    .into_script();
+                Address::p2sh(&script, opts.network)
+            },
+            AddressType::Legacy => Address::p2pkh(&pubkey_comp, opts.network)
+        };
+
+        if opts.verify_string {
+            let address_value = &value[address_start..address_end];
+            let address_str = from_utf8(address_value).map(|a| a.to_string())
+                .map_err(|e| HWKeyError::EncodingError(format!("Can't parse address: {}", e.to_string()))
+                )?;
+            if address.to_string() != address_str {
+                return Err(HWKeyError::EncodingError(
+                    format!("Address inconsistency {} != {}", address.to_string(), address_str)
+                ));
+            }
+        }
 
         let chaincode_len = 32 as usize;
         let chaincode_start = address_end;
@@ -109,7 +165,7 @@ impl TryFrom<Vec<u8>> for AddressResponse {
         let chaincode = (&value[chaincode_start..chaincode_end]).to_vec();
 
         Ok(AddressResponse {
-            pubkey: pubkey.to_vec(), address, chaincode
+            pubkey, address, chaincode
         })
     }
 }
@@ -161,11 +217,10 @@ impl BitcoinApp {
             .with_p2(opts.address_type as u8)
             .build();
         sendrecv(&device, &apdu)
-            .and_then(|res| AddressResponse::try_from(res))
+            .and_then(|res| AddressResponse::try_from((res, opts)))
     }
 
-    fn witness_redeem(pubkey: &Vec<u8>, network: Network) -> Script {
-        let pubkey = PublicKey::from_slice(pubkey.as_slice()).unwrap();
+    fn witness_redeem(pubkey: &PublicKey, network: Network) -> Script {
         let address = Address::p2wpkh(&PublicKey::from_slice(&pubkey.key.serialize()).unwrap(), network).unwrap();
         let base = address.script_pubkey();
 
@@ -193,7 +248,10 @@ impl BitcoinApp {
         let mut inputs: Vec<InputDetails> = Vec::with_capacity(tx.input.len());
 
         for (i, ui) in config.inputs.iter().enumerate() {
-            let address = BitcoinApp::get_address_internal(&device, ui.hd_path.to_bytes(), GetAddressOpts::default())?;
+            let address = BitcoinApp::get_address_internal(&device, ui.hd_path.to_bytes(), GetAddressOpts {
+                network: config.network,
+                ..GetAddressOpts::default()
+            })?;
             let prev_tx = deserialize::<Transaction>(ui.raw.as_slice())
                 .map_err(|_| HWKeyError::InputError("Invalid input tx data".to_string()))?;;
             let txid = prev_tx.txid().clone();
@@ -355,19 +413,22 @@ impl BitcoinApp {
 
 #[cfg(test)]
 mod tests {
-    use crate::ledger::app_bitcoin::AddressResponse;
+    use crate::ledger::app_bitcoin::{AddressResponse, GetAddressOpts};
     use std::convert::TryFrom;
+    use bitcoin::util::psbt::serialize::Serialize;
+    use bitcoin::Address;
+    use std::str::FromStr;
 
     #[test]
     fn decode_segwit_address_1() {
         let resp = hex::decode("410465fa75cc427606b99d9aaa326fdc7d0d30add37c545c5795eab1112839ccb406198798942cc6ccac5cc1933b584b23a82f66278513f38a4765e0cdf44b11d5eb2a6263317161616179796b7272783834636c676e706366717530306e6d663267336d6637663533706b336ee115bac4f8c9019b63a1dbec0edf5c22ed14bf94508ff082926964c123c0906c9000000000000000000000000000000000000000000000000000000000000000c901").unwrap();
-        let parsed = AddressResponse::try_from(resp);
+        let parsed = AddressResponse::try_from((resp, GetAddressOpts::default()));
         assert!(parsed.is_ok(), format!("{:?}", parsed));
         let parsed = parsed.unwrap();
-        assert_eq!("bc1qaaayykrrx84clgnpcfqu00nmf2g3mf7f53pk3n".to_string(), parsed.address);
+        assert_eq!(Address::from_str("bc1qaaayykrrx84clgnpcfqu00nmf2g3mf7f53pk3n").unwrap(), parsed.address);
         assert_eq!(
             "0465fa75cc427606b99d9aaa326fdc7d0d30add37c545c5795eab1112839ccb406198798942cc6ccac5cc1933b584b23a82f66278513f38a4765e0cdf44b11d5eb",
-            hex::encode(parsed.pubkey));
+            hex::encode(parsed.pubkey.serialize()));
         assert_eq!(
             "e115bac4f8c9019b63a1dbec0edf5c22ed14bf94508ff082926964c123c0906c",
             hex::encode(parsed.chaincode)
@@ -377,13 +438,13 @@ mod tests {
     #[test]
     fn decode_segwit_address_2() {
         let resp = hex::decode("410423e3b63f8bfec04e968b6b413242006e59e74972617543325116d836521fadb548bac4825b5175c971a4bcae42d75ba622f130048860099a2548980e6e9c06402a6263317175746e616c63776a6561397a6633387667637a6b6e6377387376646339677a79736c6176776e40b2f931e05f7d88850de2ca6f3a5cb68a95740139944d8e5fb91f7b6e23772090000000000000000000000000000000000000000000000000000000000000005f7d").unwrap();
-        let parsed = AddressResponse::try_from(resp);
+        let parsed = AddressResponse::try_from((resp, GetAddressOpts::default()));
         assert!(parsed.is_ok(), format!("{:?}", parsed));
         let parsed = parsed.unwrap();
-        assert_eq!("bc1qutnalcwjea9zf38vgczkncw8svdc9gzyslavwn".to_string(), parsed.address);
+        assert_eq!(Address::from_str("bc1qutnalcwjea9zf38vgczkncw8svdc9gzyslavwn").unwrap(), parsed.address);
         assert_eq!(
             "0423e3b63f8bfec04e968b6b413242006e59e74972617543325116d836521fadb548bac4825b5175c971a4bcae42d75ba622f130048860099a2548980e6e9c0640",
-            hex::encode(parsed.pubkey));
+            hex::encode(parsed.pubkey.serialize()));
         assert_eq!(
             "40b2f931e05f7d88850de2ca6f3a5cb68a95740139944d8e5fb91f7b6e237720",
             hex::encode(parsed.chaincode)
@@ -393,13 +454,13 @@ mod tests {
     #[test]
     fn decode_segwit_address_3() {
         let resp = hex::decode("4104cbf9b7ef45036927be859f4d0125f404ef1247878fb97c2b11c05726df0f2323833595ea361631ffeef009b8fa760073a7943a904e04b5dca373fdfd91b1d8342a626331717472346d37776d33336334777a79776833746774706b6b706430776e64326c6d79797166396d8ea6ceaac3341fd23f07c23702ab4303683cce2ddb9d8a4bdb080d4c27b53cae9000000000000000000000000000000000000000000000000000000000000000341f").unwrap();
-        let parsed = AddressResponse::try_from(resp);
+        let parsed = AddressResponse::try_from((resp, GetAddressOpts::default()));
         assert!(parsed.is_ok(), format!("{:?}", parsed));
         let parsed = parsed.unwrap();
-        assert_eq!("bc1qtr4m7wm33c4wzywh3tgtpkkpd0wnd2lmyyqf9m".to_string(), parsed.address);
+        assert_eq!(Address::from_str("bc1qtr4m7wm33c4wzywh3tgtpkkpd0wnd2lmyyqf9m").unwrap(), parsed.address);
         assert_eq!(
             "04cbf9b7ef45036927be859f4d0125f404ef1247878fb97c2b11c05726df0f2323833595ea361631ffeef009b8fa760073a7943a904e04b5dca373fdfd91b1d834",
-            hex::encode(parsed.pubkey));
+            hex::encode(parsed.pubkey.serialize()));
         assert_eq!(
             "8ea6ceaac3341fd23f07c23702ab4303683cce2ddb9d8a4bdb080d4c27b53cae",
             hex::encode(parsed.chaincode)
@@ -409,13 +470,13 @@ mod tests {
     #[test]
     fn decode_compat_address_1() {
         let resp = hex::decode("41047311bac2b7908931e73f5b8d02ca9cf8ff294bfad6d2e1e5bba707757d97be3591b954c37b9db706700667d9c15ec31d11053bcc644102fee05f2331c4f28b82223336725948586a72517035754a56665a666457355933467671474446445668746d73dae818a01fbfce0d8bf2deaae7d462a6a79a3be90ec011a79c65ec7251ffab2c90000000000000000000000000000000000000000000000000000000000000000000000000000000d462").unwrap();
-        let parsed = AddressResponse::try_from(resp);
+        let parsed = AddressResponse::try_from((resp, GetAddressOpts::compat_address()));
         assert!(parsed.is_ok(), format!("{:?}", parsed));
         let parsed = parsed.unwrap();
-        assert_eq!("36rYHXjrQp5uJVfZfdW5Y3FvqGDFDVhtms".to_string(), parsed.address);
+        assert_eq!(Address::from_str("36rYHXjrQp5uJVfZfdW5Y3FvqGDFDVhtms").unwrap(), parsed.address);
         assert_eq!(
             "047311bac2b7908931e73f5b8d02ca9cf8ff294bfad6d2e1e5bba707757d97be3591b954c37b9db706700667d9c15ec31d11053bcc644102fee05f2331c4f28b82",
-            hex::encode(parsed.pubkey));
+            hex::encode(parsed.pubkey.serialize()));
         assert_eq!(
             "dae818a01fbfce0d8bf2deaae7d462a6a79a3be90ec011a79c65ec7251ffab2c",
             hex::encode(parsed.chaincode)

@@ -1,97 +1,36 @@
-extern crate emerald_hwkey;
-#[macro_use]
-extern crate serde_derive;
-#[macro_use]
-extern crate log;
-extern crate simple_logger;
+#![allow(unused_imports)]
+#![allow(dead_code)]
 
-use std::{env, fs};
+#[macro_use]
+extern crate lazy_static;
+
+use emerald_hwkey::{
+    ledger::manager::LedgerKey,
+    ledger::app_bitcoin::{BitcoinApp, GetAddressOpts, AddressType, UnsignedInput, SignTx},
+};
+use bitcoin::{
+    Address,
+    Network,
+    Transaction,
+    TxIn,
+    TxOut,
+    OutPoint,
+    Txid,
+    util::psbt::serialize::Serialize,
+};
+use std::str::FromStr;
 use hdpath::StandardHDPath;
-use hex;
+use std::convert::TryFrom;
 use log::LevelFilter;
 use simple_logger::SimpleLogger;
-use std::convert::TryFrom;
-use emerald_hwkey::{
-    ledger::{
-        manager::LedgerKey,
-        app_ethereum::{EthereumApp, AddressResponse},
-    }
-};
-use emerald_hwkey::ledger::app_bitcoin::{BitcoinApp, GetAddressOpts, SignTx, UnsignedInput, AddressType};
-use bitcoin::{Transaction, TxIn, OutPoint, Txid, TxOut, Address, PublicKey, PubkeyHash};
-use std::str::FromStr;
-use bitcoin::util::psbt::serialize::Serialize;
-use bitcoin::network::constants::Network;
-use bitcoin::hashes::Hash;
 
-#[derive(Deserialize)]
-struct TestAddress {
-    pub hdpath: String,
-    pub address: String,
-}
-
-#[derive(Deserialize)]
-struct TestTx {
-    pub id: String,
-    pub description: Option<String>,
-    pub from: Option<String>,
-    pub raw: String,
-    pub unsigned: String,
-    pub signature: String,
-}
-
-fn hex_address(a: AddressResponse) -> String {
-    format!("0x{:}", a.address)
-}
-
-fn is_ledger_enabled() -> bool {
-    match env::var("EMRLD_HWKEY_TEST_LEDGER") {
-        Ok(v) => v == "true",
-        Err(_) => false,
-    }
-}
-
-fn read_test_addresses() -> Vec<TestAddress> {
-    let json = fs::read_to_string("./testdata/ledger/address.json")
-        .expect("./testdata/ledger/address.json is not available");
-    let result: Vec<TestAddress> = serde_json::from_str(json.as_str()).expect("Invalid JSON");
-    result
-}
-
-fn read_test_txes() -> Vec<TestTx> {
-    let json = fs::read_to_string("./testdata/ledger/tx.json")
-        .expect("./testdata/ledger/tx.json is not available");
-    let result: Vec<TestTx> = serde_json::from_str(json.as_str()).expect("Invalid JSON");
-    result
+lazy_static! {
+    static ref LOG_CONF: () = SimpleLogger::new().with_level(LevelFilter::Trace).init().unwrap();
 }
 
 #[test]
-pub fn get_ethereum_address() {
-    SimpleLogger::new().with_level(LevelFilter::Trace).init().unwrap();
-    if !is_ledger_enabled() {
-        warn!("Ledger test is disabled");
-        return;
-    }
-    let mut manager = LedgerKey::new().unwrap();
-    manager.connect().expect("Not connected");
-    let app = EthereumApp::new(manager);
-
-    let addresses = read_test_addresses();
-    for address in addresses {
-        let hdpath = StandardHDPath::try_from(address.hdpath.as_str()).expect("Invalid HDPath");
-        let act = app.get_address(hdpath.to_bytes())
-            .map(hex_address).unwrap();
-        assert_eq!(act.to_string(), address.address);
-    }
-}
-
-#[test]
+#[cfg(ledger_bitcoin)]
 pub fn get_bitcoin_address() {
-    SimpleLogger::new().with_level(LevelFilter::Trace).init().unwrap();
-    // if !is_ledger_enabled() {
-    //     warn!("Ledger test is disabled");
-    //     return;
-    // }
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
     let app = BitcoinApp::new(manager);
@@ -113,12 +52,8 @@ pub fn get_bitcoin_address() {
 }
 
 #[test]
+#[cfg(ledger_bitcoin)]
 pub fn get_bitcoin_address_legacy() {
-    SimpleLogger::new().with_level(LevelFilter::Trace).init().unwrap();
-    // if !is_ledger_enabled() {
-    //     warn!("Ledger test is disabled");
-    //     return;
-    // }
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
     let app = BitcoinApp::new(manager);
@@ -142,12 +77,8 @@ pub fn get_bitcoin_address_legacy() {
 }
 
 #[test]
+#[cfg(ledger_bitcoin)]
 pub fn get_bitcoin_address_segwit_compat() {
-    SimpleLogger::new().with_level(LevelFilter::Trace).init().unwrap();
-    // if !is_ledger_enabled() {
-    //     warn!("Ledger test is disabled");
-    //     return;
-    // }
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
     let app = BitcoinApp::new(manager);
@@ -171,12 +102,8 @@ pub fn get_bitcoin_address_segwit_compat() {
 }
 
 #[test]
+#[cfg(ledger_bitcoin_test)]
 pub fn get_bitcoin_address_testnet() {
-    SimpleLogger::new().with_level(LevelFilter::Trace).init().unwrap();
-    // if !is_ledger_enabled() {
-    //     warn!("Ledger test is disabled");
-    //     return;
-    // }
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
     let app = BitcoinApp::new(manager);
@@ -203,12 +130,8 @@ pub fn get_bitcoin_address_testnet() {
 }
 
 #[test]
+#[cfg(ledger_bitcoin)]
 pub fn confirm_get_bitcoin_address() {
-    SimpleLogger::new().with_level(LevelFilter::Trace).init().unwrap();
-    if !is_ledger_enabled() {
-        warn!("Ledger test is disabled");
-        return;
-    }
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
     let app = BitcoinApp::new(manager);
@@ -219,12 +142,8 @@ pub fn confirm_get_bitcoin_address() {
 }
 
 #[test]
+#[cfg(ledger_bitcoin)]
 pub fn compat_get_bitcoin_address() {
-    SimpleLogger::new().with_level(LevelFilter::Trace).init().unwrap();
-    if !is_ledger_enabled() {
-        warn!("Ledger test is disabled");
-        return;
-    }
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
     let app = BitcoinApp::new(manager);
@@ -236,8 +155,8 @@ pub fn compat_get_bitcoin_address() {
 
 
 #[test]
+#[cfg(ledger_bitcoin_test)]
 pub fn sign_bitcoin_tx() {
-    SimpleLogger::new().with_level(LevelFilter::Trace).init().unwrap();
     // send 0.04567677 from tb1qglapytdh7tmu7uphfh2rczzy89a7k98z5p3era at m/84'/1'/0'/0/0
     // to tb1qg9zx7vnkfs8yaycm66wz5tat6d9x29wrezhcr0
 
@@ -303,54 +222,4 @@ pub fn sign_bitcoin_tx() {
     // assert_eq!(vec![
     //     "30..."
     // ], signatures);
-}
-
-#[test]
-pub fn sign_1eth_to_78296f10() {
-    if !is_ledger_enabled() {
-        warn!("Ledger test is disabled");
-        return;
-    }
-
-    let test_txes = read_test_txes();
-    test_tx_sign(&test_txes[0]);
-}
-
-#[test]
-pub fn sign_1etc_to_78296f10() {
-    if !is_ledger_enabled() {
-        warn!("Ledger test is disabled");
-        return;
-    }
-
-    let test_txes = read_test_txes();
-    test_tx_sign(&test_txes[1]);
-}
-
-#[test]
-pub fn sign_1kovan_to_78296f10() {
-    if !is_ledger_enabled() {
-        warn!("Ledger test is disabled");
-        return;
-    }
-
-    let test_txes = read_test_txes();
-    test_tx_sign(&test_txes[2]);
-}
-
-fn test_tx_sign(exp: &TestTx) {
-    let mut manager = LedgerKey::new().unwrap();
-    manager.connect().expect("Not connected");
-    let app = EthereumApp::new(manager);
-
-    println!("Test: {:}", exp.id);
-    let from = exp.from.as_ref().unwrap();
-    let from = StandardHDPath::try_from(from.as_str()).expect("invalid from");
-
-    let rlp = hex::decode(&exp.unsigned).unwrap();
-    let sign = app
-        .sign_transaction(&rlp, from.to_bytes())
-        .unwrap().to_vec();
-
-    assert_eq!(exp.signature, hex::encode(sign));
 }

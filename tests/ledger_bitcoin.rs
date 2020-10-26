@@ -23,6 +23,7 @@ use hdpath::StandardHDPath;
 use std::convert::TryFrom;
 use log::LevelFilter;
 use simple_logger::SimpleLogger;
+use bitcoin::util::psbt::serialize::Deserialize;
 
 lazy_static! {
     static ref LOG_CONF: () = SimpleLogger::new().with_level(LevelFilter::Trace).init().unwrap();
@@ -219,7 +220,7 @@ pub fn sign_bitcoin_tx() {
     println!("Signed: {}", hex::encode(tx.serialize()));
 
     let signatures: Vec<String> = signature.iter().map(hex::encode).collect();
-    // assert_eq!(vec![
-    //     "30..."
-    // ], signatures);
+    assert_eq!(vec![
+        "304402202ffaf3d2856ecb77485064b02216870596881ed2387b2e01d82fb91b9c26b6ff02206408c6cbf17123bf5ae4678030e0d557b8794690cd822f72999b0b2c49dc0b8501"
+    ], signatures);
 }

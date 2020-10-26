@@ -255,10 +255,16 @@ impl BitcoinApp {
             let prev_tx = deserialize::<Transaction>(ui.raw.as_slice())
                 .map_err(|_| HWKeyError::InputError("Invalid input tx data".to_string()))?;
             let txid = prev_tx.txid().clone();
+            let sequence = tx.input.iter()
+                .find(|it| it.previous_output.txid == txid && it.previous_output.vout == ui.vout)
+                .map(|it| it.sequence)
+                .unwrap_or(TxIn::default().sequence);
+
             inputs.push(InputDetails {
                 prev_tx,
                 prev_tx_parsed: TxIn {
                     previous_output: OutPoint::new(txid, ui.vout),
+                    sequence,
                     ..Default::default()
                 },
                 amount: ui.amount,
@@ -274,7 +280,7 @@ impl BitcoinApp {
         }
 
         // finalize to get hash
-        self.finalize_inputs(&device, &tx)?;
+        self.finalize_outputs(&device, &tx)?;
 
         // make actual signatures
         let mut signatures = Vec::with_capacity(inputs.len());
@@ -379,7 +385,7 @@ impl BitcoinApp {
         sendrecv(&device, &apdu)
     }
 
-    fn finalize_inputs(&self, device: &HidDevice, tx: &Transaction) -> Result<(), HWKeyError> {
+    fn finalize_outputs(&self, device: &HidDevice, tx: &Transaction) -> Result<(), HWKeyError> {
         let mut data: Vec<u8> = Vec::new();
         data.extend_from_slice(serialize(&VarInt(tx.output.len() as u64)).as_slice());
         for output in &tx.output {

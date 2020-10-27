@@ -72,7 +72,7 @@ pub fn get_ethereum_address() {
     let addresses = read_test_addresses();
     for address in addresses {
         let hdpath = StandardHDPath::try_from(address.hdpath.as_str()).expect("Invalid HDPath");
-        let act = app.get_address(hdpath.to_bytes())
+        let act = app.get_address(&hdpath)
             .map(hex_address).unwrap();
         assert_eq!(act.to_string(), address.address);
     }
@@ -110,7 +110,7 @@ fn test_tx_sign(exp: &TestTx) {
 
     let rlp = hex::decode(&exp.unsigned).unwrap();
     let sign = app
-        .sign_transaction(&rlp, from.to_bytes())
+        .sign_transaction(&rlp, &from)
         .unwrap().to_vec();
 
     assert_eq!(exp.signature, hex::encode(sign));

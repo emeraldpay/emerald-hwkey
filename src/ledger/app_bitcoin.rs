@@ -27,7 +27,7 @@ use bitcoin::{
 };
 use byteorder::{WriteBytesExt, LittleEndian};
 use hidapi::HidDevice;
-use hdpath::StandardHDPath;
+use hdpath::{StandardHDPath, HDPath};
 use sha2::{Sha256, Digest};
 use ripemd160::Ripemd160;
 
@@ -205,14 +205,14 @@ impl BitcoinApp {
     /// # Arguments:
     /// hd_path - HD path, prefixed with count of derivation indexes
     ///
-    pub fn get_address(&self, hd_path: Vec<u8>, opts: GetAddressOpts) -> Result<AddressResponse, HWKeyError> {
+    pub fn get_address<P: HDPath>(&self, hd_path: &P, opts: GetAddressOpts) -> Result<AddressResponse, HWKeyError> {
         let handle = self.ledger.open()?;
         BitcoinApp::get_address_internal(&handle, hd_path, opts)
     }
 
-    fn get_address_internal(device: &HidDevice, hd_path: Vec<u8>, opts: GetAddressOpts) -> Result<AddressResponse, HWKeyError> {
+    fn get_address_internal<P: HDPath>(device: &HidDevice, hd_path: &P, opts: GetAddressOpts) -> Result<AddressResponse, HWKeyError> {
         let apdu = ApduBuilder::new(COMMAND_GET_ADDRESS)
-            .with_data(&hd_path)
+            .with_data(hd_path.to_bytes().as_slice())
             .with_p1(if opts.confirmation {1} else {0})
             .with_p2(opts.address_type as u8)
             .build();
@@ -248,7 +248,7 @@ impl BitcoinApp {
         let mut inputs: Vec<InputDetails> = Vec::with_capacity(tx.input.len());
 
         for ui in config.inputs.iter() {
-            let address = BitcoinApp::get_address_internal(&device, ui.hd_path.to_bytes(), GetAddressOpts {
+            let address = BitcoinApp::get_address_internal(&device, &ui.hd_path, GetAddressOpts {
                 network: config.network,
                 ..GetAddressOpts::default()
             })?;

@@ -4,6 +4,7 @@ use std::str::from_utf8;
 use crate::ledger::comm::sendrecv;
 use crate::ledger::manager::{LedgerKey, CHUNK_SIZE};
 use std::convert::TryFrom;
+use hdpath::HDPath;
 
 /// ECDSA crypto signature length in bytes
 pub const ECDSA_SIGNATURE_BYTES: usize = 65;
@@ -70,9 +71,9 @@ impl EthereumApp {
     /// # Arguments:
     /// hd_path - HD path, prefixed with count of derivation indexes
     ///
-    pub fn get_address(&self, hd_path: Vec<u8>) -> Result<AddressResponse, HWKeyError> {
+    pub fn get_address<P: HDPath>(&self, hd_path: &P) -> Result<AddressResponse, HWKeyError> {
         let apdu = ApduBuilder::new(COMMAND_GET_ADDRESS)
-            .with_data(&hd_path)
+            .with_data(hd_path.to_bytes().as_slice())
             .build();
         let handle = self.ledger.open()?;
         sendrecv(&handle, &apdu)
@@ -85,21 +86,21 @@ impl EthereumApp {
     /// tx - RLP encoded transaction
     /// hd_path - HD path, prefixed with count of derivation indexes
     ///
-    pub fn sign_transaction(
+    pub fn sign_transaction<P: HDPath>(
         &self,
         tx: &[u8],
-        hd_path: Vec<u8>,
+        hd_path: &P,
     ) -> Result<SignatureBytes, HWKeyError> {
 
         let _mock = Vec::new();
         let (init, cont) = match tx.len() {
             0..=CHUNK_SIZE => (tx, _mock.as_slice()),
-            _ => tx.split_at(CHUNK_SIZE - hd_path.len()),
+            _ => tx.split_at(CHUNK_SIZE - hd_path.to_bytes().len()),
         };
 
         let init_apdu = ApduBuilder::new(COMMAND_SIGN_TRANSACTION)
             .with_p1(0x00)
-            .with_data(&hd_path)
+            .with_data(hd_path.to_bytes().as_slice())
             .with_data(init)
             .build();
 

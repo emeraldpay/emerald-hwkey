@@ -19,11 +19,14 @@ use bitcoin::{
     util::psbt::serialize::Serialize,
 };
 use std::str::FromStr;
-use hdpath::StandardHDPath;
+use hdpath::{StandardHDPath, AccountHDPath};
 use std::convert::TryFrom;
 use log::LevelFilter;
 use simple_logger::SimpleLogger;
 use bitcoin::util::psbt::serialize::Deserialize;
+use bitcoin::util::bip32::{ExtendedPubKey, Fingerprint, ChildNumber};
+use secp256k1::Secp256k1;
+use std::thread;
 
 lazy_static! {
     static ref LOG_CONF: () = SimpleLogger::new().with_level(LevelFilter::Trace).init().unwrap();
@@ -154,6 +157,104 @@ pub fn compat_get_bitcoin_address() {
     assert_eq!(act.address, Address::from_str("36rYHXjrQp5uJVfZfdW5Y3FvqGDFDVhtms").unwrap());
 }
 
+#[test]
+#[cfg(ledger_bitcoin)]
+pub fn get_xpub_0() {
+    let mut manager = LedgerKey::new().unwrap();
+    manager.connect().expect("Not connected");
+    let app = BitcoinApp::new(manager);
+
+    let hdpath = AccountHDPath::try_from("m/44'/0'/0'").expect("Invalid HDPath");
+
+    let act = app.get_xpub(&hdpath, Network::Bitcoin).expect("Failed to get xpub");
+    let exp = ExtendedPubKey::from_str("xpub6DKpFN6ZfnVw31f2LtBtZfQ2QQocxgojbwyg63RFmC1C9k14ijNUPEPheJ3DQVjAWFHD5EeXVEZ9RKvtUhZNe5P31nivbtCo7h7dLfzRC1v").unwrap();
+
+    assert_eq!(act, exp);
+}
+
+#[test]
+#[cfg(ledger_bitcoin)]
+pub fn get_xpub_1() {
+    let mut manager = LedgerKey::new().unwrap();
+    manager.connect().expect("Not connected");
+    let app = BitcoinApp::new(manager);
+
+    let hdpath = AccountHDPath::try_from("m/44'/0'/1'").expect("Invalid HDPath");
+
+    let act = app.get_xpub(&hdpath, Network::Bitcoin).expect("Failed to get xpub");
+    let exp = ExtendedPubKey::from_str("xpub6DKpFN6ZfnVw6Vm67fB1HVkRdwfHmEiDZvXrtMUmd2BavMd5onANHhVdMpYGgza4gUVULrPAoSdFy4BkSPCGcbFJ18GBC9eg7rmt5YqD9RJ").unwrap();
+
+    assert_eq!(act, exp);
+}
+
+#[test]
+#[cfg(ledger_bitcoin)]
+pub fn get_xpub_84_0() {
+    let mut manager = LedgerKey::new().unwrap();
+    manager.connect().expect("Not connected");
+    let app = BitcoinApp::new(manager);
+
+    let hdpath = AccountHDPath::try_from("m/84'/0'/0'").expect("Invalid HDPath");
+
+    let act = app.get_xpub(&hdpath, Network::Bitcoin).expect("Failed to get xpub");
+    // actual = zpub6rRF9XhDBRQSKiGLTD9vTaBfdpRrxJA9eG5YHmTwFfRN2Rbv7w7XNgCZg93Gk7CdRdfjY5hwM5ugrwXak9RgVsx5fwHfAdHdbf5UKmokEtJ
+    // convert with https://jlopp.github.io/xpub-converter/
+    let exp = ExtendedPubKey::from_str("xpub6CkiYCMNt4KUd7t6nVag3PzfHt8y54B9p336iygAVefbvDyTccnQ8YtHdj86kHtncMS838WpRmCb6NJTJkbeuQaswFtozoef4CxBYcSAYWa").unwrap();
+
+    assert_eq!(act, exp);
+}
+
+#[test]
+#[cfg(ledger_bitcoin)]
+pub fn get_xpub_84_17() {
+    let mut manager = LedgerKey::new().unwrap();
+    manager.connect().expect("Not connected");
+    let app = BitcoinApp::new(manager);
+
+    let hdpath = AccountHDPath::try_from("m/84'/0'/17'").expect("Invalid HDPath");
+
+    let act = app.get_xpub(&hdpath, Network::Bitcoin).expect("Failed to get xpub");
+    // actual = zpub6rRF9XhDBRQT6HfqmRBeQkQ9JVswt45EoPFgEMZtysrJwPZcNRJ7mQCrnPcomdyRBV95Cj2cHWusvAafHvUZCLoJDw2Dy7GyqjXjg36r7zb
+    // convert with https://jlopp.github.io/xpub-converter/
+    let exp = ExtendedPubKey::from_str("xpub6CkiYCMNt4KVPhHc6hcPzaD8xZb3zp6EyADEfZn8Ds6YqBw9s6xzXGtajyhdmpfaNCuThmqVNCCn9bMXrXeXbsS6VFdNoHe1JHQSttAp1nc").unwrap();
+
+    assert_eq!(act, exp);
+}
+
+#[test]
+#[cfg(ledger_bitcoin)]
+pub fn address_within_xpub() {
+    let mut manager = LedgerKey::new().unwrap();
+    manager.connect().expect("Not connected");
+    let app = BitcoinApp::new(manager);
+
+    let secp = Secp256k1::new();
+
+    let hdpath = AccountHDPath::try_from("m/84'/0'/2'").expect("Invalid HDPath");
+    let xpub = app.get_xpub(&hdpath, Network::Bitcoin).expect("Failed to get xpub");
+
+    for change in &[0u32, 1] {
+        for index in &[0u32, 1, 2, 5, 7, 10, 16, 64, 100, 150, 500, 1000, 15861, 71591, 619691] {
+            let address_exp = Address::p2wpkh(
+                &xpub.derive_pub(&secp, &vec![
+                    ChildNumber::from_normal_idx(*change).unwrap(),
+                    ChildNumber::from_normal_idx(*index).unwrap()
+                ]).unwrap().public_key,
+                Network::Bitcoin,
+            ).unwrap();
+            let address_act = app.get_address(
+                &hdpath.address_at(*change, *index).unwrap(),
+                GetAddressOpts::default(),
+            ).unwrap().address;
+
+            // println!("verify address {:} at {:}", address_act, hdpath.address_at(*change, *index).unwrap().to_string());
+            assert_eq!(address_exp, address_act);
+
+            // because ledger may stuck if call it too fast
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+}
 
 #[test]
 #[cfg(ledger_bitcoin_test)]

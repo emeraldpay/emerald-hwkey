@@ -27,9 +27,10 @@ use bitcoin::{
 };
 use byteorder::{WriteBytesExt, LittleEndian};
 use hidapi::HidDevice;
-use hdpath::{StandardHDPath, HDPath};
+use hdpath::{StandardHDPath, HDPath, PathValue, CustomHDPath};
 use sha2::{Sha256, Digest};
 use ripemd160::Ripemd160;
+use bitcoin::util::bip32::{ExtendedPubKey, ChainCode, ChildNumber, Fingerprint};
 
 const COMMAND_GET_ADDRESS: u8 = 0x40;
 #[allow(dead_code)]
@@ -57,7 +58,7 @@ pub struct BitcoinApp {
 pub struct AddressResponse {
     pub pubkey: PublicKey,
     pub address: Address,
-    pub chaincode: Vec<u8>
+    pub chaincode: ChainCode
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -95,6 +96,19 @@ impl GetAddressOpts {
     }
 }
 
+fn hash160(value: &[u8]) -> Vec<u8> {
+    let mut hash256 = Sha256::new();
+    hash256.update(value);
+    let mut hash160 = Ripemd160::new();
+    hash160.update(hash256.finalize());
+    hash160.finalize().to_vec()
+}
+
+fn as_compact(pubkey: &PublicKey) -> Result<PublicKey, HWKeyError> {
+    PublicKey::from_slice(&pubkey.key.serialize())
+        .map_err(|_| HWKeyError::CryptoError("Invalid public key".to_string()))
+}
+
 impl TryFrom<(Vec<u8>, GetAddressOpts)> for AddressResponse {
     type Error = HWKeyError;
 
@@ -113,8 +127,7 @@ impl TryFrom<(Vec<u8>, GetAddressOpts)> for AddressResponse {
         let pubkey = &value[1..pubkey_len+1];
         let pubkey = PublicKey::from_slice(pubkey)
             .map_err(|_| HWKeyError::CryptoError("Invalid public key".to_string()))?;
-        let pubkey_comp = PublicKey::from_slice(&pubkey.key.serialize())
-            .map_err(|_| HWKeyError::CryptoError("Invalid public key".to_string()))?;
+        let pubkey_comp = as_compact(&pubkey)?;
 
         let address_len = value[pubkey_len + 1] as usize;
         let address_start = 1 + pubkey_len + 1;
@@ -129,13 +142,9 @@ impl TryFrom<(Vec<u8>, GetAddressOpts)> for AddressResponse {
             AddressType::Bench32 => Address::p2wpkh(&pubkey_comp, opts.network)
                 .map_err(|_| HWKeyError::CryptoError("Invalid Pubkey".to_string()))?,
             AddressType::SegwitCompat => {
-                let mut hash256 = Sha256::new();
-                hash256.update(pubkey_comp.serialize());
-                let mut hash160 = Ripemd160::new();
-                hash160.update(hash256.finalize());
                 let script = Builder::new()
                     .push_opcode(opcodes::all::OP_PUSHBYTES_0)
-                    .push_slice(&hash160.finalize())
+                    .push_slice(hash160(pubkey_comp.serialize().as_slice()).as_slice())
                     .into_script();
                 Address::p2sh(&script, opts.network)
             },
@@ -163,6 +172,7 @@ impl TryFrom<(Vec<u8>, GetAddressOpts)> for AddressResponse {
             ))
         }
         let chaincode = (&value[chaincode_start..chaincode_end]).to_vec();
+        let chaincode = ChainCode::from(chaincode.as_slice());
 
         Ok(AddressResponse {
             pubkey, address, chaincode
@@ -208,6 +218,45 @@ impl BitcoinApp {
     pub fn get_address<P: HDPath>(&self, hd_path: &P, opts: GetAddressOpts) -> Result<AddressResponse, HWKeyError> {
         let handle = self.ledger.open()?;
         BitcoinApp::get_address_internal(&handle, hd_path, opts)
+    }
+
+    pub fn get_xpub<P: HDPath>(&self, hd_path: &P, network: Network) -> Result<ExtendedPubKey, HWKeyError> {
+        let opts = GetAddressOpts {
+            address_type: AddressType::Legacy, // actual address is not used, so doesn't matter
+            network,
+            confirmation: false,
+            verify_string: false
+        };
+        let as_address = self.get_address(hd_path, opts)?;
+        let index = hd_path.get(hd_path.len() - 1).unwrap();
+        let pubkey_comp = as_compact(&as_address.pubkey)?;
+
+        let parent_fingerprint = if hd_path.len() > 0 {
+            let mut parent_hd_path = Vec::with_capacity(hd_path.len() as usize - 1);
+            for i in 0..hd_path.len()-1 {
+                parent_hd_path.push(hd_path.get(i).unwrap());
+            }
+            let parent_hd_path = CustomHDPath::try_new(parent_hd_path)
+                .expect("No parent HD Path");
+            let parent_address = self.get_address(&parent_hd_path, opts)?;
+            let fp = hash160(as_compact(&parent_address.pubkey)?.serialize().as_slice());
+            Fingerprint::from(&fp[0..4])
+        } else {
+            Fingerprint::default()
+        };
+
+        let result = ExtendedPubKey {
+            network,
+            depth: hd_path.len(),
+            public_key: pubkey_comp,
+            chain_code: as_address.chaincode,
+            child_number: match index {
+                PathValue::Hardened(i) => ChildNumber::from_hardened_idx(i).unwrap(),
+                PathValue::Normal(i) => ChildNumber::from_normal_idx(i).unwrap(),
+            },
+            parent_fingerprint
+        };
+        Ok(result)
     }
 
     fn get_address_internal<P: HDPath>(device: &HidDevice, hd_path: &P, opts: GetAddressOpts) -> Result<AddressResponse, HWKeyError> {
@@ -440,7 +489,7 @@ mod tests {
             hex::encode(parsed.pubkey.serialize()));
         assert_eq!(
             "e115bac4f8c9019b63a1dbec0edf5c22ed14bf94508ff082926964c123c0906c",
-            hex::encode(parsed.chaincode)
+            hex::encode(parsed.chaincode.as_bytes())
         )
     }
 
@@ -456,7 +505,7 @@ mod tests {
             hex::encode(parsed.pubkey.serialize()));
         assert_eq!(
             "40b2f931e05f7d88850de2ca6f3a5cb68a95740139944d8e5fb91f7b6e237720",
-            hex::encode(parsed.chaincode)
+            hex::encode(parsed.chaincode.as_bytes())
         )
     }
 
@@ -472,7 +521,7 @@ mod tests {
             hex::encode(parsed.pubkey.serialize()));
         assert_eq!(
             "8ea6ceaac3341fd23f07c23702ab4303683cce2ddb9d8a4bdb080d4c27b53cae",
-            hex::encode(parsed.chaincode)
+            hex::encode(parsed.chaincode.as_bytes())
         )
     }
 
@@ -488,7 +537,7 @@ mod tests {
             hex::encode(parsed.pubkey.serialize()));
         assert_eq!(
             "dae818a01fbfce0d8bf2deaae7d462a6a79a3be90ec011a79c65ec7251ffab2c",
-            hex::encode(parsed.chaincode)
+            hex::encode(parsed.chaincode.as_bytes())
         )
     }
 }

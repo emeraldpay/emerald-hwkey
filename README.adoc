@@ -1,10 +1,61 @@
 = Emerald HWKey
 
+image:https://github.com/emeraldpay/emerald-hwkey/workflows/Test/badge.svg["Test"]
+image:https://coveralls.io/repos/github/emeraldpay/emerald-hwkey/badge.svg["Coveralls"]
+image:https://codecov.io/gh/emeraldpay/emerald-hwkey/branch/master/graph/badge.svg[Codecov,link=https://codecov.io/gh/emeraldpay/emerald-hwkey]
+image:https://img.shields.io/crates/v/emerald-hwkey.svg?style=flat-square["Crates",link="https://crates.io/crates/emerald-hwkey"]
+image:https://img.shields.io/badge/License-Apache%202.0-blue.svg["License"]
+
 Rust library to access Hardware Keys for Cryptocurrency.
 
 .Supports:
 - Ledger Nano S
 - Ledger Nano X
+
+== Development
+
+=== Integration Testing
+
+For all the test the following Mnemonic Phrase is used:
+
+----
+blanket large   trumpet mandate call  great unhappy skull
+special assist  draw    right   quote stone under   legend
+invite  morning hub     believe pulp  piano tuition fruit
+----
+
+You can also verify addresses and get the actual Private Key by using https://iancoleman.io/bip39/#english with that
+Mnemonic.
+At least for the Ledger Nano products.
+
+WARNING: Never transfer real money to the Test Ledger or any wallet created from the Mnemonic Phrase above.
+         Since the Phrase is public all the money would be stolen immediately.
+
+==== Ledger + Bitcoin App
+
+*Bitcoin App* must be open on Ledger
+
+----
+EMRLD_HWKEY_TEST=ledger_bitcoin cargo test --test ledger_bitcoin -- --test-threads=1
+----
+
+
+==== Ledger + Bitcoin Test App
+
+*Bitcoin Test App* must be open on Ledger
+
+----
+EMRLD_HWKEY_TEST=ledger_bitcoin_test cargo test --test ledger_bitcoin -- --test-threads=1
+----
+
+
+==== Ledger + Ethereum App
+
+*Ethereum App* must be open on Ledger
+
+----
+EMRLD_HWKEY_TEST=ledger_ethereum cargo test --test ledger_ethereum -- --test-threads=1
+----
 
 == License
 

@@ -32,9 +32,10 @@ use sha2::{Sha256, Digest};
 use ripemd160::Ripemd160;
 use bitcoin::util::bip32::{ChainCode};
 use crate::ledger::commons::as_compact;
-use crate::ledger::traits::{AsPubkey, AsChainCode, PubkeyAddressApp, AsExtendedKey};
+use crate::ledger::traits::{AsPubkey, AsChainCode, PubkeyAddressApp, AsExtendedKey, LedgerApp};
 
 const COMMAND_GET_ADDRESS: u8 = 0x40;
+const COMMAND_COIN_VERSION: u8 = 0x16;
 #[allow(dead_code)]
 const COMMAND_GET_UNTRUSTED_INPUT: u8 = 0x42;
 const COMMAND_UNTRUSTED_HASH_TX: u8 = 0x44;
@@ -442,6 +443,19 @@ impl BitcoinApp {
         Ok(())
     }
 
+    fn get_version(&self) -> Option<AppVersion> {
+        let apdu = ApduBuilder::new(COMMAND_COIN_VERSION)
+            .build();
+        let device = self.ledger.open();
+        if device.is_err() {
+            return None
+        }
+        let resp = sendrecv(&device.unwrap(), &apdu);
+        if resp.is_err() {
+            return None
+        }
+        AppVersion::try_from(resp.unwrap()).ok()
+    }
 }
 
 impl PubkeyAddressApp for BitcoinApp {
@@ -451,13 +465,112 @@ impl PubkeyAddressApp for BitcoinApp {
     }
 }
 
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum BitcoinApps {
+    Mainnet,
+    Testnet
+}
+
+#[derive(Clone, Eq, PartialEq, Debug)]
+struct AppVersion {
+    p2pkh: [u8; 2],
+    p2sh: [u8; 2],
+    family: u8,
+    name: String,
+    ticker: String
+}
+
+impl TryFrom<Vec<u8>> for AppVersion {
+    type Error = ();
+
+    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        let mut expected_len = 2 + 2 + 1 + 1;
+        if value.len() < expected_len {
+            return Err(())
+        }
+        let p2pkh: [u8; 2] = [value[0], value[1]];
+        let p2sh: [u8; 2] = [value[2], value[3]];
+        let family = value[4];
+        let name_len = value[5] as usize;
+        expected_len = expected_len + name_len;
+        if value.len() < expected_len {
+            return Err(())
+        }
+        let name = String::from_utf8(value[6..6+name_len].to_vec()).map_err(|_| ())?;
+        let ticker_len = value[6 + name_len] as usize;
+        let ticker_start = 6 + name_len + 1;
+        expected_len = expected_len + ticker_len;
+        if value.len() < expected_len {
+            return Err(())
+        }
+        let ticker = String::from_utf8(value[ticker_start..ticker_start+ticker_len].to_vec()).map_err(|_| ())?;
+        Ok(AppVersion {
+            p2pkh, p2sh,
+            family,
+            name, ticker
+        })
+    }
+}
+
+impl LedgerApp for BitcoinApp {
+    type Category = BitcoinApps;
+
+    fn is_open(&self) -> Option<Self::Category> {
+        self.get_version().and_then(|ver| {
+            if ver.family == 1 && ver.name == "Bitcoin" {
+                match ver.ticker.as_str() {
+                    "BTC" => Some(BitcoinApps::Mainnet),
+                    "TEST" => Some(BitcoinApps::Testnet),
+                    _ => None
+                }
+            } else {
+                None
+            }
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::ledger::app_bitcoin::{AddressResponse, GetAddressOpts};
+    use crate::ledger::app_bitcoin::{AddressResponse, GetAddressOpts, AppVersion};
     use std::convert::TryFrom;
     use bitcoin::util::psbt::serialize::Serialize;
     use bitcoin::Address;
     use std::str::FromStr;
+
+    #[test]
+    fn decode_btc_app() {
+        let resp = hex::decode("000000050107426974636f696e03425443").unwrap();
+        let app_ver = AppVersion::try_from(resp);
+        assert!(app_ver.is_ok());
+        assert_eq!(
+            AppVersion {
+                p2pkh: [0, 0],
+                p2sh: [0, 5],
+                family: 1,
+                name: "Bitcoin".to_string(),
+                ticker: "BTC".to_string()
+            },
+            app_ver.unwrap()
+        )
+    }
+
+    #[test]
+    fn decode_btctest_app() {
+        let resp = hex::decode("000000050107426974636f696e0454455354").unwrap();
+        let app_ver = AppVersion::try_from(resp);
+        assert!(app_ver.is_ok());
+        assert_eq!(
+            AppVersion {
+                p2pkh: [0, 0],
+                p2sh: [0, 5],
+                family: 1,
+                name: "Bitcoin".to_string(),
+                ticker: "TEST".to_string()
+            },
+            app_ver.unwrap()
+        )
+    }
 
     #[test]
     fn decode_segwit_address_1() {

@@ -6,7 +6,7 @@ extern crate lazy_static;
 
 use emerald_hwkey::{
     ledger::manager::LedgerKey,
-    ledger::app_bitcoin::{BitcoinApp, GetAddressOpts, AddressType, UnsignedInput, SignTx},
+    ledger::app_bitcoin::{BitcoinApp, GetAddressOpts, AddressType, UnsignedInput, SignTx, BitcoinApps},
 };
 use bitcoin::{
     Address,
@@ -27,10 +27,40 @@ use bitcoin::util::psbt::serialize::Deserialize;
 use bitcoin::util::bip32::{ExtendedPubKey, Fingerprint, ChildNumber};
 use secp256k1::Secp256k1;
 use std::thread;
-use emerald_hwkey::ledger::traits::PubkeyAddressApp;
+use emerald_hwkey::ledger::traits::{PubkeyAddressApp, LedgerApp};
 
 lazy_static! {
     static ref LOG_CONF: () = SimpleLogger::new().with_level(LevelFilter::Trace).init().unwrap();
+}
+
+#[test]
+#[cfg(ledger_bitcoin)]
+pub fn is_bitcoin_open() {
+    let mut manager = LedgerKey::new().unwrap();
+    manager.connect().expect("Not connected");
+    let app = BitcoinApp::new(manager);
+    let open = app.is_open();
+    assert_eq!(Some(BitcoinApps::Mainnet), open);
+}
+
+#[test]
+#[cfg(not(ledger_bitcoin))]
+pub fn is_bitcoin_closed() {
+    let mut manager = LedgerKey::new().unwrap();
+    manager.connect().expect("Not connected");
+    let app = BitcoinApp::new(manager);
+    let open = app.is_open();
+    assert_ne!(Some(BitcoinApps::Mainnet), open);
+}
+
+#[test]
+#[cfg(ledger_bitcoin_test)]
+pub fn is_bitcoin_test_open() {
+    let mut manager = LedgerKey::new().unwrap();
+    manager.connect().expect("Not connected");
+    let app = BitcoinApp::new(manager);
+    let open = app.is_open();
+    assert_eq!(Some(BitcoinApps::Testnet), open);
 }
 
 #[test]

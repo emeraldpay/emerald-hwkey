@@ -56,3 +56,9 @@ pub trait PubkeyAddressApp {
         Ok(result)
     }
 }
+
+pub trait LedgerApp {
+    type Category;
+
+    fn is_open(&self) -> Option<Self::Category>;
+}

@@ -123,7 +123,7 @@ pub fn send(dev: &HidDevice, apdu: &APDU) -> Result<(), HWKeyError> {
 
     debug!(">> senrecv input: {:?}", &apdu);
     // Write Data.
-    while data_itr.size_hint().0 != 0 {
+    while !init_sent || data_itr.size_hint().0 != 0 {
         // Add 1 to HID_RPT_SIZE since we need to prefix this with a record
         // index.
         let mut frame: [u8; (HID_RPT_SIZE + 1) as usize] = [0; (HID_RPT_SIZE + 1) as usize];
@@ -138,8 +138,7 @@ pub fn send(dev: &HidDevice, apdu: &APDU) -> Result<(), HWKeyError> {
         }
 
         if log_enabled!(log::Level::Trace) {
-            let parts: Vec<String> = frame.iter().map(|byte| format!("{:02x}", byte)).collect();
-            trace!(">> USB send: {}", parts.join(""));
+            trace!(">> USB send: {}", hex::encode(frame.to_vec()));
         }
 
         if let Err(err) = dev.write(&frame) {

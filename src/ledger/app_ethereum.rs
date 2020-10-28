@@ -5,6 +5,10 @@ use crate::ledger::comm::sendrecv;
 use crate::ledger::manager::{LedgerKey, CHUNK_SIZE};
 use std::convert::TryFrom;
 use hdpath::HDPath;
+use bitcoin::secp256k1::PublicKey;
+use crate::ledger::traits::{AsPubkey, AsChainCode, AsExtendedKey, PubkeyAddressApp};
+use crate::ledger::commons::as_compact;
+use bitcoin::util::bip32::ChainCode;
 
 /// ECDSA crypto signature length in bytes
 pub const ECDSA_SIGNATURE_BYTES: usize = 65;
@@ -20,9 +24,24 @@ pub struct EthereumApp {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct AddressResponse {
-    pub pubkey: Vec<u8>,
+    pub pubkey: PublicKey,
     pub address: String,
+    pub chaincode: ChainCode
 }
+
+impl AsPubkey for AddressResponse {
+    fn as_pubkey(&self) -> &PublicKey {
+        &self.pubkey
+    }
+}
+
+impl AsChainCode for AddressResponse {
+    fn as_chaincode(&self) -> &ChainCode {
+        &self.chaincode
+    }
+}
+
+impl AsExtendedKey for AddressResponse {}
 
 impl TryFrom<Vec<u8>> for AddressResponse {
     type Error = HWKeyError;
@@ -38,6 +57,9 @@ impl TryFrom<Vec<u8>> for AddressResponse {
             ))
         }
         let pubkey = &value[1..pubkey_len+1];
+        let pubkey = PublicKey::from_slice(pubkey)
+            .map_err(|_| HWKeyError::CryptoError("Invalid public key".to_string()))?;
+        let pubkey_comp = as_compact(&pubkey)?;
 
         let address_len = value[pubkey_len + 1] as usize;
         let address_start = 1 + pubkey_len + 1;
@@ -52,8 +74,19 @@ impl TryFrom<Vec<u8>> for AddressResponse {
             .map_err(|e| HWKeyError::EncodingError(format!("Can't parse address: {}", e.to_string()))
         )?;
 
+        let chaincode_len = 32 as usize;
+        let chaincode_start = address_end;
+        let chaincode_end = chaincode_start + chaincode_len;
+        if chaincode_end > value.len() {
+            return Err(HWKeyError::EncodingError(
+                format!("Chaincode cutoff. {:?} > {:?}", chaincode_end, value.len())
+            ))
+        }
+        let chaincode = (&value[chaincode_start..chaincode_end]).to_vec();
+        let chaincode = ChainCode::from(chaincode.as_slice());
+
         Ok(AddressResponse {
-            pubkey: pubkey.to_vec(), address
+            pubkey: pubkey_comp, address, chaincode
         })
     }
 }
@@ -71,8 +104,13 @@ impl EthereumApp {
     /// # Arguments:
     /// hd_path - HD path, prefixed with count of derivation indexes
     ///
-    pub fn get_address<P: HDPath>(&self, hd_path: &P) -> Result<AddressResponse, HWKeyError> {
+    pub fn get_address<P: HDPath>(&self, hd_path: &P, confirm: bool) -> Result<AddressResponse, HWKeyError> {
         let apdu = ApduBuilder::new(COMMAND_GET_ADDRESS)
+            // 00 : return address
+            // 01 : display address and confirm before returning
+            .with_p1(if confirm {0x01} else {0x00})
+            // 01 : return the chain code
+            .with_p2(0x01)
             .with_data(hd_path.to_bytes().as_slice())
             .build();
         let handle = self.ledger.open()?;
@@ -134,6 +172,13 @@ impl EthereumApp {
     }
 }
 
+impl PubkeyAddressApp for EthereumApp {
+    fn get_extkey_at<P: HDPath>(&self, hd_path: &P) -> Result<Box<dyn AsExtendedKey>, HWKeyError> {
+        let address = self.get_address(hd_path, false)?;
+        Ok(Box::new(address))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::ledger::app_ethereum::AddressResponse;
@@ -141,25 +186,25 @@ mod tests {
 
     #[test]
     fn decode_std_address() {
-        let resp = hex::decode("4104b28217096d8ad3dd25461404c3941a5196ac8f089f1be5bcb62df2ce08a71ba1ca4b879ee38217cced7ef1c9dc5c15cb804ab159503514f73559d1a1192ba1fc2835416434323366356562343733353431356339336630636535326636653263313342443641353030900000000000003514").unwrap();
+        let resp = hex::decode("4104b28217096d8ad3dd25461404c3941a5196ac8f089f1be5bcb62df2ce08a71ba1ca4b879ee38217cced7ef1c9dc5c15cb804ab159503514f73559d1a1192ba1fc28354164343233663565623437333534313563393366306365353266366532633133424436413530309000000000000035140000000000000000000000000000000000000000000000000000000000000000").unwrap();
         let parsed = AddressResponse::try_from(resp);
         assert!(parsed.is_ok(), format!("{:?}", parsed));
         let parsed = parsed.unwrap();
         assert_eq!("5Ad423f5eb4735415c93f0ce52f6e2c13BD6A500".to_string(), parsed.address);
         assert_eq!(
             "04b28217096d8ad3dd25461404c3941a5196ac8f089f1be5bcb62df2ce08a71ba1ca4b879ee38217cced7ef1c9dc5c15cb804ab159503514f73559d1a1192ba1fc",
-            hex::encode(parsed.pubkey));
+            hex::encode(parsed.pubkey.serialize_uncompressed().to_vec()));
     }
 
     #[test]
     fn decode_std_address_2() {
-        let resp = hex::decode("4104452ae4b222d10cb80c269d0677f7165c548e49113d91b26848ae01a7732f15ff88379573411237d1a9dfb9603d2f40d7a56bf12b1bf5f6ae3b69d7bfebd45689283364363634383362344361643335313838363130323946663836613338376542633437303531373290000000000000f5f6").unwrap();
+        let resp = hex::decode("4104452ae4b222d10cb80c269d0677f7165c548e49113d91b26848ae01a7732f15ff88379573411237d1a9dfb9603d2f40d7a56bf12b1bf5f6ae3b69d7bfebd45689283364363634383362344361643335313838363130323946663836613338376542633437303531373290000000000000f5f60000000000000000000000000000000000000000000000000000000000000000").unwrap();
         let parsed = AddressResponse::try_from(resp);
         assert!(parsed.is_ok(), format!("{:?}", parsed));
         let parsed = parsed.unwrap();
         assert_eq!("3d66483b4Cad3518861029Ff86a387eBc4705172".to_string(), parsed.address);
         assert_eq!(
             "04452ae4b222d10cb80c269d0677f7165c548e49113d91b26848ae01a7732f15ff88379573411237d1a9dfb9603d2f40d7a56bf12b1bf5f6ae3b69d7bfebd45689",
-            hex::encode(parsed.pubkey));
+            hex::encode(parsed.pubkey.serialize_uncompressed().to_vec()));
     }
 }

@@ -27,6 +27,7 @@ use bitcoin::util::psbt::serialize::Deserialize;
 use bitcoin::util::bip32::{ExtendedPubKey, Fingerprint, ChildNumber};
 use secp256k1::Secp256k1;
 use std::thread;
+use emerald_hwkey::ledger::traits::PubkeyAddressApp;
 
 lazy_static! {
     static ref LOG_CONF: () = SimpleLogger::new().with_level(LevelFilter::Trace).init().unwrap();
@@ -42,17 +43,17 @@ pub fn get_bitcoin_address() {
     let hdpath = StandardHDPath::try_from("m/84'/0'/0'/0/0").expect("Invalid HDPath");
     let act = app.get_address(&hdpath, GetAddressOpts::default()).expect("Failed to get address");
     assert_eq!(act.address, Address::from_str("bc1qaaayykrrx84clgnpcfqu00nmf2g3mf7f53pk3n").unwrap());
-    assert_eq!(hex::encode(act.pubkey.serialize()), "0465fa75cc427606b99d9aaa326fdc7d0d30add37c545c5795eab1112839ccb406198798942cc6ccac5cc1933b584b23a82f66278513f38a4765e0cdf44b11d5eb");
+    assert_eq!(hex::encode(act.pubkey.serialize()), "0365fa75cc427606b99d9aaa326fdc7d0d30add37c545c5795eab1112839ccb406");
 
     let hdpath = StandardHDPath::try_from("m/84'/0'/1'/0/5").expect("Invalid HDPath");
     let act = app.get_address(&hdpath, GetAddressOpts::default()).expect("Failed to get address");
     assert_eq!(act.address, Address::from_str("bc1qutnalcwjea9zf38vgczkncw8svdc9gzyslavwn").unwrap());
-    assert_eq!(hex::encode(act.pubkey.serialize()), "0423e3b63f8bfec04e968b6b413242006e59e74972617543325116d836521fadb548bac4825b5175c971a4bcae42d75ba622f130048860099a2548980e6e9c0640");
+    assert_eq!(hex::encode(act.pubkey.serialize()), "0223e3b63f8bfec04e968b6b413242006e59e74972617543325116d836521fadb5");
 
     let hdpath = StandardHDPath::try_from("m/84'/0'/1'/1/3").expect("Invalid HDPath");
     let act = app.get_address(&hdpath, GetAddressOpts::default()).expect("Failed to get address");
     assert_eq!(act.address, Address::from_str("bc1qtr4m7wm33c4wzywh3tgtpkkpd0wnd2lmyyqf9m").unwrap());
-    assert_eq!(hex::encode(act.pubkey.serialize()), "04cbf9b7ef45036927be859f4d0125f404ef1247878fb97c2b11c05726df0f2323833595ea361631ffeef009b8fa760073a7943a904e04b5dca373fdfd91b1d834");
+    assert_eq!(hex::encode(act.pubkey.serialize()), "02cbf9b7ef45036927be859f4d0125f404ef1247878fb97c2b11c05726df0f2323");
 }
 
 #[test]
@@ -120,17 +121,17 @@ pub fn get_bitcoin_address_testnet() {
     let hdpath = StandardHDPath::try_from("m/84'/1'/0'/0/0").expect("Invalid HDPath");
     let act = app.get_address(&hdpath, opts).expect("Failed to get address");
     assert_eq!(act.address, Address::from_str("tb1qglapytdh7tmu7uphfh2rczzy89a7k98z5p3era").unwrap());
-    assert_eq!(hex::encode(act.pubkey.serialize()), "0400aa53021aac8f948b391b2c6aab930f6186d0bc1d29fca81a2459e85630e18ff965743d0be542b4f8ccfdaf40d4dc4b7002e8fab541f71009866c3993f60e8d");
+    assert_eq!(hex::encode(act.pubkey.serialize()), "0300aa53021aac8f948b391b2c6aab930f6186d0bc1d29fca81a2459e85630e18f");
 
     let hdpath = StandardHDPath::try_from("m/84'/1'/1'/0/5").expect("Invalid HDPath");
     let act = app.get_address(&hdpath, opts).expect("Failed to get address");
     assert_eq!(act.address, Address::from_str("tb1quw7aafua6qe43ydvv3aj7p5xqspc6rpvzwjem4").unwrap());
-    assert_eq!(hex::encode(act.pubkey.serialize()), "043a7a069b5fcfcca78eadaf3c209f97cebae11761857e2734ed7f2d43008d5de8e248d594bf9d7cf0d6fdc441673e8e1f3e54eb0e4a6ac24bedfa5eec1546814e");
+    assert_eq!(hex::encode(act.pubkey.serialize()), "023a7a069b5fcfcca78eadaf3c209f97cebae11761857e2734ed7f2d43008d5de8");
 
     let hdpath = StandardHDPath::try_from("m/84'/1'/1'/1/3").expect("Invalid HDPath");
     let act = app.get_address(&hdpath, opts).expect("Failed to get address");
     assert_eq!(act.address, Address::from_str("tb1qhcfnvvdk0lth4rayz5fh9kcua5ep029lec0fds").unwrap());
-    assert_eq!(hex::encode(act.pubkey.serialize()), "047943d5f3a66344a6639200e70ff6281615ec18f806d074f5369b55bb1f7cef5440712fa9382c9dea661a7250456f8752fd4246ccb5dc00457661e1f446d49c5a");
+    assert_eq!(hex::encode(act.pubkey.serialize()), "027943d5f3a66344a6639200e70ff6281615ec18f806d074f5369b55bb1f7cef54");
 }
 
 #[test]

@@ -27,10 +27,12 @@ use bitcoin::{
 };
 use byteorder::{WriteBytesExt, LittleEndian};
 use hidapi::HidDevice;
-use hdpath::{StandardHDPath, HDPath, PathValue, CustomHDPath};
+use hdpath::{StandardHDPath, HDPath};
 use sha2::{Sha256, Digest};
 use ripemd160::Ripemd160;
-use bitcoin::util::bip32::{ExtendedPubKey, ChainCode, ChildNumber, Fingerprint};
+use bitcoin::util::bip32::{ChainCode};
+use crate::ledger::commons::as_compact;
+use crate::ledger::traits::{AsPubkey, AsChainCode, PubkeyAddressApp, AsExtendedKey};
 
 const COMMAND_GET_ADDRESS: u8 = 0x40;
 #[allow(dead_code)]
@@ -60,6 +62,20 @@ pub struct AddressResponse {
     pub address: Address,
     pub chaincode: ChainCode
 }
+
+impl AsPubkey for AddressResponse {
+    fn as_pubkey(&self) -> &bitcoin::secp256k1::PublicKey {
+        &self.pubkey.key
+    }
+}
+
+impl AsChainCode for AddressResponse {
+    fn as_chaincode(&self) -> &ChainCode {
+        &self.chaincode
+    }
+}
+
+impl AsExtendedKey for AddressResponse {}
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct GetAddressOpts {
@@ -96,17 +112,12 @@ impl GetAddressOpts {
     }
 }
 
-fn hash160(value: &[u8]) -> Vec<u8> {
+pub fn hash160(value: &[u8]) -> Vec<u8> {
     let mut hash256 = Sha256::new();
     hash256.update(value);
     let mut hash160 = Ripemd160::new();
     hash160.update(hash256.finalize());
     hash160.finalize().to_vec()
-}
-
-fn as_compact(pubkey: &PublicKey) -> Result<PublicKey, HWKeyError> {
-    PublicKey::from_slice(&pubkey.key.serialize())
-        .map_err(|_| HWKeyError::CryptoError("Invalid public key".to_string()))
 }
 
 impl TryFrom<(Vec<u8>, GetAddressOpts)> for AddressResponse {
@@ -127,7 +138,10 @@ impl TryFrom<(Vec<u8>, GetAddressOpts)> for AddressResponse {
         let pubkey = &value[1..pubkey_len+1];
         let pubkey = PublicKey::from_slice(pubkey)
             .map_err(|_| HWKeyError::CryptoError("Invalid public key".to_string()))?;
-        let pubkey_comp = as_compact(&pubkey)?;
+        let pubkey_comp = PublicKey{
+            compressed: true,
+            key: as_compact(&pubkey.key)?
+        };
 
         let address_len = value[pubkey_len + 1] as usize;
         let address_start = 1 + pubkey_len + 1;
@@ -175,7 +189,7 @@ impl TryFrom<(Vec<u8>, GetAddressOpts)> for AddressResponse {
         let chaincode = ChainCode::from(chaincode.as_slice());
 
         Ok(AddressResponse {
-            pubkey, address, chaincode
+            pubkey: pubkey_comp, address, chaincode
         })
     }
 }
@@ -218,45 +232,6 @@ impl BitcoinApp {
     pub fn get_address<P: HDPath>(&self, hd_path: &P, opts: GetAddressOpts) -> Result<AddressResponse, HWKeyError> {
         let handle = self.ledger.open()?;
         BitcoinApp::get_address_internal(&handle, hd_path, opts)
-    }
-
-    pub fn get_xpub<P: HDPath>(&self, hd_path: &P, network: Network) -> Result<ExtendedPubKey, HWKeyError> {
-        let opts = GetAddressOpts {
-            address_type: AddressType::Legacy, // actual address is not used, so doesn't matter
-            network,
-            confirmation: false,
-            verify_string: false
-        };
-        let as_address = self.get_address(hd_path, opts)?;
-        let index = hd_path.get(hd_path.len() - 1).unwrap();
-        let pubkey_comp = as_compact(&as_address.pubkey)?;
-
-        let parent_fingerprint = if hd_path.len() > 0 {
-            let mut parent_hd_path = Vec::with_capacity(hd_path.len() as usize - 1);
-            for i in 0..hd_path.len()-1 {
-                parent_hd_path.push(hd_path.get(i).unwrap());
-            }
-            let parent_hd_path = CustomHDPath::try_new(parent_hd_path)
-                .expect("No parent HD Path");
-            let parent_address = self.get_address(&parent_hd_path, opts)?;
-            let fp = hash160(as_compact(&parent_address.pubkey)?.serialize().as_slice());
-            Fingerprint::from(&fp[0..4])
-        } else {
-            Fingerprint::default()
-        };
-
-        let result = ExtendedPubKey {
-            network,
-            depth: hd_path.len(),
-            public_key: pubkey_comp,
-            chain_code: as_address.chaincode,
-            child_number: match index {
-                PathValue::Hardened(i) => ChildNumber::from_hardened_idx(i).unwrap(),
-                PathValue::Normal(i) => ChildNumber::from_normal_idx(i).unwrap(),
-            },
-            parent_fingerprint
-        };
-        Ok(result)
     }
 
     fn get_address_internal<P: HDPath>(device: &HidDevice, hd_path: &P, opts: GetAddressOpts) -> Result<AddressResponse, HWKeyError> {
@@ -469,6 +444,13 @@ impl BitcoinApp {
 
 }
 
+impl PubkeyAddressApp for BitcoinApp {
+    fn get_extkey_at<P: HDPath>(&self, hd_path: &P) -> Result<Box<dyn AsExtendedKey>, HWKeyError> {
+        let address = self.get_address(hd_path, GetAddressOpts::default())?;
+        Ok(Box::new(address))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::ledger::app_bitcoin::{AddressResponse, GetAddressOpts};
@@ -485,7 +467,7 @@ mod tests {
         let parsed = parsed.unwrap();
         assert_eq!(Address::from_str("bc1qaaayykrrx84clgnpcfqu00nmf2g3mf7f53pk3n").unwrap(), parsed.address);
         assert_eq!(
-            "0465fa75cc427606b99d9aaa326fdc7d0d30add37c545c5795eab1112839ccb406198798942cc6ccac5cc1933b584b23a82f66278513f38a4765e0cdf44b11d5eb",
+            "0365fa75cc427606b99d9aaa326fdc7d0d30add37c545c5795eab1112839ccb406",
             hex::encode(parsed.pubkey.serialize()));
         assert_eq!(
             "e115bac4f8c9019b63a1dbec0edf5c22ed14bf94508ff082926964c123c0906c",
@@ -501,7 +483,7 @@ mod tests {
         let parsed = parsed.unwrap();
         assert_eq!(Address::from_str("bc1qutnalcwjea9zf38vgczkncw8svdc9gzyslavwn").unwrap(), parsed.address);
         assert_eq!(
-            "0423e3b63f8bfec04e968b6b413242006e59e74972617543325116d836521fadb548bac4825b5175c971a4bcae42d75ba622f130048860099a2548980e6e9c0640",
+            "0223e3b63f8bfec04e968b6b413242006e59e74972617543325116d836521fadb5",
             hex::encode(parsed.pubkey.serialize()));
         assert_eq!(
             "40b2f931e05f7d88850de2ca6f3a5cb68a95740139944d8e5fb91f7b6e237720",
@@ -517,7 +499,7 @@ mod tests {
         let parsed = parsed.unwrap();
         assert_eq!(Address::from_str("bc1qtr4m7wm33c4wzywh3tgtpkkpd0wnd2lmyyqf9m").unwrap(), parsed.address);
         assert_eq!(
-            "04cbf9b7ef45036927be859f4d0125f404ef1247878fb97c2b11c05726df0f2323833595ea361631ffeef009b8fa760073a7943a904e04b5dca373fdfd91b1d834",
+            "02cbf9b7ef45036927be859f4d0125f404ef1247878fb97c2b11c05726df0f2323",
             hex::encode(parsed.pubkey.serialize()));
         assert_eq!(
             "8ea6ceaac3341fd23f07c23702ab4303683cce2ddb9d8a4bdb080d4c27b53cae",
@@ -533,7 +515,7 @@ mod tests {
         let parsed = parsed.unwrap();
         assert_eq!(Address::from_str("36rYHXjrQp5uJVfZfdW5Y3FvqGDFDVhtms").unwrap(), parsed.address);
         assert_eq!(
-            "047311bac2b7908931e73f5b8d02ca9cf8ff294bfad6d2e1e5bba707757d97be3591b954c37b9db706700667d9c15ec31d11053bcc644102fee05f2331c4f28b82",
+            "027311bac2b7908931e73f5b8d02ca9cf8ff294bfad6d2e1e5bba707757d97be35",
             hex::encode(parsed.pubkey.serialize()));
         assert_eq!(
             "dae818a01fbfce0d8bf2deaae7d462a6a79a3be90ec011a79c65ec7251ffab2c",

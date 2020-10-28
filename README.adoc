@@ -57,6 +57,14 @@ EMRLD_HWKEY_TEST=ledger_bitcoin_test cargo test --test ledger_bitcoin -- --test-
 EMRLD_HWKEY_TEST=ledger_ethereum cargo test --test ledger_ethereum -- --test-threads=1
 ----
 
+==== Ledger + Ethereum Classic App
+
+*Ethereum Classic App* must be open on Ledger
+
+----
+EMRLD_HWKEY_TEST=ledger_ethereum_classic cargo test --test ledger_ethereum -- --test-threads=1
+----
+
 == License
 
 Copyright 2020 EmeraldPay, Inc

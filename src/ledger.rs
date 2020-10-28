@@ -16,6 +16,8 @@ limitations under the License.
 */
 mod apdu;
 mod comm;
+pub mod traits;
+mod commons;
 pub mod manager;
 pub mod app_ethereum;
 pub mod app_bitcoin;

@@ -11,7 +11,7 @@ extern crate simple_logger;
 extern crate lazy_static;
 
 use std::{fs};
-use hdpath::StandardHDPath;
+use hdpath::{StandardHDPath, AccountHDPath};
 use hex;
 use log::LevelFilter;
 use simple_logger::SimpleLogger;
@@ -23,6 +23,9 @@ use emerald_hwkey::{
     }
 };
 use std::str::FromStr;
+use emerald_hwkey::ledger::traits::PubkeyAddressApp;
+use bitcoin::Network;
+use bitcoin::util::bip32::ExtendedPubKey;
 
 lazy_static! {
     static ref LOG_CONF: () = SimpleLogger::new().with_level(LevelFilter::Trace).init().unwrap();
@@ -72,7 +75,7 @@ pub fn get_ethereum_address() {
     let addresses = read_test_addresses();
     for address in addresses {
         let hdpath = StandardHDPath::try_from(address.hdpath.as_str()).expect("Invalid HDPath");
-        let act = app.get_address(&hdpath)
+        let act = app.get_address(&hdpath, false)
             .map(hex_address).unwrap();
         assert_eq!(act.to_string(), address.address);
     }
@@ -82,24 +85,58 @@ pub fn get_ethereum_address() {
 #[cfg(ledger_ethereum)]
 pub fn sign_1eth_to_78296f10() {
     let test_txes = read_test_txes();
-    test_tx_sign(&test_txes[0]);
+    internal_tx_sign(&test_txes[0]);
 }
 
 #[test]
-#[cfg(ledger_ethereum)]
+#[cfg(ledger_ethereum_classic)]
 pub fn sign_1etc_to_78296f10() {
     let test_txes = read_test_txes();
-    test_tx_sign(&test_txes[1]);
+    internal_tx_sign(&test_txes[1]);
 }
 
 #[test]
 #[cfg(ledger_ethereum)]
 pub fn sign_1kovan_to_78296f10() {
     let test_txes = read_test_txes();
-    test_tx_sign(&test_txes[2]);
+    internal_tx_sign(&test_txes[2]);
 }
 
-fn test_tx_sign(exp: &TestTx) {
+#[test]
+#[cfg(ledger_ethereum)]
+pub fn get_xpub_0() {
+    SimpleLogger::new().with_level(LevelFilter::Trace).init().unwrap();
+
+    let mut manager = LedgerKey::new().unwrap();
+    manager.connect().expect("Not connected");
+    let app = EthereumApp::new(manager);
+
+    let hdpath = AccountHDPath::try_from("m/44'/60'/0'").expect("Invalid HDPath");
+
+    let act = app.get_xpub(&hdpath, Network::Bitcoin).expect("Failed to get xpub");
+    let exp = ExtendedPubKey::from_str("xpub6CPa3HQTW3vRGMbtqMyoRFmegyaA12RH7U3bwixGVK6oz68MeiLY5sxqZZUfzJkGarAduDJhgEtXmpDKHL6Ytv3a79jg1mkAkexCbQdMNnA").unwrap();
+
+    assert_eq!(act, exp);
+}
+
+#[test]
+#[cfg(ledger_ethereum_classic)]
+pub fn get_xpub_etc_1() {
+    SimpleLogger::new().with_level(LevelFilter::Trace).init().unwrap();
+
+    let mut manager = LedgerKey::new().unwrap();
+    manager.connect().expect("Not connected");
+    let app = EthereumApp::new(manager);
+
+    let hdpath = AccountHDPath::try_from("m/44'/61'/1'").expect("Invalid HDPath");
+
+    let act = app.get_xpub(&hdpath, Network::Bitcoin).expect("Failed to get xpub");
+    let exp = ExtendedPubKey::from_str("xpub6C5G8hBLBcnGpELb51nXjbvtCZbrPYU8riKw2Gb7L3ML8vyr1zV9dzYKGLoS2DbJLLgLzvaqdvzbfmgppKQB9RXaF4mCXmcRkkJkriX2WDP").unwrap();
+
+    assert_eq!(act, exp);
+}
+
+fn internal_tx_sign(exp: &TestTx) {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
     let app = EthereumApp::new(manager);

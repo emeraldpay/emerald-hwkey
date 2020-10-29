@@ -44,7 +44,7 @@ pub fn is_bitcoin_open() {
 }
 
 #[test]
-#[cfg(not(ledger_bitcoin))]
+#[cfg(all(integration_test, not(ledger_bitcoin)))]
 pub fn is_bitcoin_closed() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");

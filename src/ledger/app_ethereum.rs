@@ -4,9 +4,9 @@ use std::str::from_utf8;
 use crate::ledger::comm::sendrecv;
 use crate::ledger::manager::{LedgerKey, CHUNK_SIZE};
 use std::convert::TryFrom;
-use hdpath::HDPath;
+use hdpath::{HDPath, AccountHDPath, Purpose};
 use bitcoin::secp256k1::PublicKey;
-use crate::ledger::traits::{AsPubkey, AsChainCode, AsExtendedKey, PubkeyAddressApp};
+use crate::ledger::traits::{AsPubkey, AsChainCode, AsExtendedKey, PubkeyAddressApp, LedgerApp};
 use crate::ledger::commons::as_compact;
 use bitcoin::util::bip32::ChainCode;
 
@@ -15,6 +15,7 @@ pub const ECDSA_SIGNATURE_BYTES: usize = 65;
 
 const COMMAND_GET_ADDRESS: u8 = 0x02;
 const COMMAND_SIGN_TRANSACTION: u8 = 0x04;
+const COMMAND_APP_CONFIG: u8 = 0x06;
 
 pub type SignatureBytes = [u8; ECDSA_SIGNATURE_BYTES];
 
@@ -87,6 +88,35 @@ impl TryFrom<Vec<u8>> for AddressResponse {
 
         Ok(AddressResponse {
             pubkey: pubkey_comp, address, chaincode
+        })
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct AppVersion {
+    ///  arbitrary data signature enabled by user
+    pub data_sign_enabled: bool,
+    /// ERC 20 Token information needs to be provided externally
+    pub external_erc20: bool,
+    pub version_major: u8,
+    pub version_minor: u8,
+    pub version_patch: u8,
+}
+
+impl TryFrom<Vec<u8>> for AppVersion {
+    type Error = ();
+
+    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        if value.len() < 4 {
+            return Err(())
+        }
+        let flags = value[0];
+        Ok(AppVersion {
+            data_sign_enabled: flags & 0x01 > 0,
+            external_erc20: flags & 0x02 > 0,
+            version_major: value[1],
+            version_minor: value[2],
+            version_patch: value[3]
         })
     }
 }
@@ -170,12 +200,57 @@ impl EthereumApp {
             ))),
         }
     }
+
+    pub fn get_version(&self) -> Result<AppVersion, HWKeyError> {
+        let apdu = ApduBuilder::new(COMMAND_APP_CONFIG)
+            .build();
+        let handle = self.ledger.open()?;
+        let resp = sendrecv(&handle, &apdu)?;
+        AppVersion::try_from(resp).map_err(|_| HWKeyError::EncodingError("Invalid version config".to_string()))
+    }
+
+    fn is_path_available<P: HDPath>(&self, hd_path: &P) -> bool {
+        self.get_address(hd_path, false)
+            .map_or(false, |_| true)
+    }
 }
 
 impl PubkeyAddressApp for EthereumApp {
     fn get_extkey_at<P: HDPath>(&self, hd_path: &P) -> Result<Box<dyn AsExtendedKey>, HWKeyError> {
         let address = self.get_address(hd_path, false)?;
         Ok(Box::new(address))
+    }
+}
+
+#[derive(Copy, Debug, Clone, Eq, PartialEq)]
+pub enum EthereumApps {
+    Ethereum,
+    EthereumClassic
+}
+
+impl LedgerApp for EthereumApp {
+    type Category = EthereumApps;
+
+    fn is_open(&self) -> Option<Self::Category> {
+        self.get_version().ok().and_then(|_| {
+            // ETC app gives address for both m/44'/60' and m/44'/61'
+            // but ETH app gives only address for m/44'/60'
+
+            let has_60 = self.is_path_available(
+                &AccountHDPath::try_new(Purpose::Pubkey, 60, 0).expect("no-eth-acc")
+            );
+            let has_61 = self.is_path_available(
+                &AccountHDPath::try_new(Purpose::Pubkey, 61, 0).expect("no-etc-acc")
+            );
+
+            if has_60 && has_61 {
+                Some(EthereumApps::EthereumClassic)
+            } else if has_60 && !has_61 {
+                Some(EthereumApps::Ethereum)
+            } else {
+                None
+            }
+        })
     }
 }
 

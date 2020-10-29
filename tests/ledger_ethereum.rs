@@ -23,9 +23,10 @@ use emerald_hwkey::{
     }
 };
 use std::str::FromStr;
-use emerald_hwkey::ledger::traits::PubkeyAddressApp;
+use emerald_hwkey::ledger::traits::{PubkeyAddressApp, LedgerApp};
 use bitcoin::Network;
 use bitcoin::util::bip32::ExtendedPubKey;
+use emerald_hwkey::ledger::app_ethereum::EthereumApps;
 
 lazy_static! {
     static ref LOG_CONF: () = SimpleLogger::new().with_level(LevelFilter::Trace).init().unwrap();
@@ -135,6 +136,48 @@ pub fn get_xpub_etc_1() {
 
     assert_eq!(act, exp);
 }
+
+#[test]
+#[cfg(ledger_ethereum)]
+pub fn is_ethereum_open() {
+    let mut manager = LedgerKey::new().unwrap();
+    manager.connect().expect("Not connected");
+    let app = EthereumApp::new(manager);
+    let open = app.is_open();
+    assert_eq!(Some(EthereumApps::Ethereum), open);
+}
+
+#[test]
+#[cfg(all(integration_test, not(ledger_ethereum)))]
+pub fn is_ethereum_closed() {
+    let mut manager = LedgerKey::new().unwrap();
+    manager.connect().expect("Not connected");
+    let app = EthereumApp::new(manager);
+    let open = app.is_open();
+    assert_ne!(Some(EthereumApps::Ethereum), open);
+}
+
+#[test]
+#[cfg(ledger_ethereum_classic)]
+pub fn is_ethereum_classic_open() {
+    let mut manager = LedgerKey::new().unwrap();
+    manager.connect().expect("Not connected");
+    let app = EthereumApp::new(manager);
+    let open = app.is_open();
+    assert_eq!(Some(EthereumApps::EthereumClassic), open);
+}
+
+#[test]
+#[cfg(all(integration_test, not(ledger_ethereum_classic)))]
+pub fn is_ethereum_classic_closed() {
+    let mut manager = LedgerKey::new().unwrap();
+    manager.connect().expect("Not connected");
+    let app = EthereumApp::new(manager);
+    let open = app.is_open();
+    assert_ne!(Some(EthereumApps::EthereumClassic), open);
+}
+
+// ------ internal
 
 fn internal_tx_sign(exp: &TestTx) {
     let mut manager = LedgerKey::new().unwrap();

@@ -198,7 +198,6 @@ impl TryFrom<(Vec<u8>, GetAddressOpts)> for AddressResponse {
 #[derive(Clone)]
 pub struct SignTx {
     pub network: Network,
-    pub raw: Vec<u8>,
     pub inputs: Vec<UnsignedInput>,
 }
 
@@ -215,6 +214,7 @@ struct InputDetails {
     prev_tx: Transaction,
     prev_tx_parsed: TxIn,
     amount: u64,
+    from_address: AddressResponse,
     redeem: Script,
     hd_path: StandardHDPath
 }
@@ -260,15 +260,13 @@ impl BitcoinApp {
 
     /// Supports only Trusted Segwit tx.
     /// Trusted Segwit is supported only after 1.4 of the Ledger Firmware
-    pub fn sign_tx(&self, config: &SignTx) -> Result<Vec<Vec<u8>>, HWKeyError> {
+    pub fn sign_tx(&self, tx: &mut Transaction, config: &SignTx) -> Result<Vec<Vec<u8>>, HWKeyError> {
         let device = self.ledger.open()?;
         // Protocol:
         // 1. The transaction shall be processed first with all inputs having a null script length
         //    (to be done twice if the dongle has been powercycled to retrieve the authorization code)
         // 2. Then each input to sign shall be processed as part of a pseudo transaction with a single
         //    input and no outputs.
-        let tx = deserialize::<Transaction>(config.raw.as_slice())
-            .map_err(|_| HWKeyError::InputError("Invalid tx data".to_string()))?;
 
         let mut inputs: Vec<InputDetails> = Vec::with_capacity(tx.input.len());
 
@@ -293,16 +291,13 @@ impl BitcoinApp {
                     ..Default::default()
                 },
                 amount: ui.amount,
+                from_address: address.clone(),
                 hd_path: ui.hd_path.clone(),
                 redeem: BitcoinApp::witness_redeem(&address.pubkey, config.network)
             });
         }
 
-        // first pass
-        for (i, _) in inputs.iter().enumerate() {
-            let first = i == 0;
-            self.start_untrusted_hash_tx(&device, first,i, &inputs, &tx, false)?;
-        }
+        self.start_untrusted_hash_tx(&device, true, &inputs, &tx, false)?;
 
         // finalize to get hash
         self.finalize_outputs(&device, &tx)?;
@@ -311,10 +306,13 @@ impl BitcoinApp {
         let mut signatures = Vec::with_capacity(inputs.len());
         for (i, input) in inputs.iter().enumerate() {
             let ic = input.clone();
-            self.start_untrusted_hash_tx(&device, false,i,&vec![ic], &tx, true)?;
-            let mut signature = self.untrusted_hash_sign(&device, input)?;
+            self.start_untrusted_hash_tx(&device, false,&vec![ic], &tx, true)?;
+            let mut signature = self.untrusted_hash_sign(&device, input, tx.lock_time)?;
             // Signed hash, as ASN-1 encoded R & S components. Mask first byte with 0xFE
             signature[0] = signature[0] & 0xfe;
+            tx.input[i].witness = vec![
+                signature.clone(), input.from_address.pubkey.serialize().to_vec()
+            ];
             signatures.push(signature);
         }
 
@@ -322,13 +320,13 @@ impl BitcoinApp {
     }
 
     // see https://github.com/LedgerHQ/app-bitcoin/blob/master/doc/btc.asc#untrusted-hash-transaction-input-start
-    fn start_untrusted_hash_tx(&self, device: &HidDevice, is_new_tx: bool, input_index: usize, inputs: &Vec<InputDetails>, tx: &Transaction, second_pass: bool) -> Result<(), HWKeyError> {
+    fn start_untrusted_hash_tx(&self, device: &HidDevice, is_new_tx: bool, inputs: &Vec<InputDetails>, tx: &Transaction, second_pass: bool) -> Result<(), HWKeyError> {
         let mut data: Vec<u8> = Vec::new();
         // needs version
         data.write_u32::<LittleEndian>(tx.version as u32)
             .map_err(|_| HWKeyError::EncodingError("Failed to encode version".to_string()))?;
         data.extend_from_slice(serialize(&VarInt(inputs.len() as u64)).as_slice());
-        for (i, ti) in inputs.iter().enumerate() {
+        for ti in inputs.iter() {
             // 0x02 if the input is passed as a Segregated Witness Input
             data.push(0x02);
             // original 36 bytes prevout
@@ -340,7 +338,7 @@ impl BitcoinApp {
             // The transaction shall be processed first with all inputs having a null script length
             // Then each input to sign shall be processed as part of a pseudo transaction with a single input and no outputs.
             // i.e. include scripts only on second pass
-            if second_pass && i == input_index {
+            if second_pass {
                 // must be witness redeem
                 // serialize() encodes size
                 data.extend_from_slice(serialize(&ti.redeem).as_slice());
@@ -395,11 +393,11 @@ impl BitcoinApp {
         Ok(())
     }
 
-    fn untrusted_hash_sign(&self, device: &HidDevice, input: &InputDetails) -> Result<Vec<u8>, HWKeyError> {
+    fn untrusted_hash_sign(&self, device: &HidDevice, input: &InputDetails, locktime: u32) -> Result<Vec<u8>, HWKeyError> {
         let mut data: Vec<u8> = Vec::new();
         data.extend_from_slice(input.hd_path.to_bytes().as_slice());
         data.push(0x00); // RFU (0x00)
-        data.write_u32::<LittleEndian>(0) //locktime
+        data.write_u32::<LittleEndian>(locktime) //locktime
             .map_err(|_| HWKeyError::EncodingError("Failed to encode locktime".to_string()))?;
         data.push(SigHashType::All as u8); //SigHashType
         let apdu = ApduBuilder::new(COMMAND_UNTRUSTED_HASH_SIGN)

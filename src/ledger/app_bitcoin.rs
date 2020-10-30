@@ -443,7 +443,12 @@ impl BitcoinApp {
 
 impl PubkeyAddressApp for BitcoinApp {
     fn get_extkey_at<P: HDPath>(&self, hd_path: &P) -> Result<Box<dyn AsExtendedKey>, HWKeyError> {
-        let address = self.get_address(hd_path, GetAddressOpts::default())?;
+        let address = self.get_address(hd_path, GetAddressOpts {
+            // disable verification since it needs only pubkey, and the app may be running different blockchain with different address format
+            verify_string: false,
+            confirmation: false,
+            ..GetAddressOpts::default()
+        })?;
         Ok(Box::new(address))
     }
 }

@@ -253,6 +253,21 @@ pub fn get_xpub_84_17() {
 }
 
 #[test]
+#[cfg(ledger_bitcoin_test)]
+pub fn get_xpub_test() {
+    let mut manager = LedgerKey::new().unwrap();
+    manager.connect().expect("Not connected");
+    let app = BitcoinApp::new(manager);
+
+    let hdpath = AccountHDPath::try_from("m/44'/1'/5'").expect("Invalid HDPath");
+
+    let act = app.get_xpub(&hdpath, Network::Testnet).expect("Failed to get xpub");
+    let exp = ExtendedPubKey::from_str("tpubDCnH31p12jTYeSH4NpWbg7s33dTQdaz2GS8wF4hjTL9wtxZaFu2qzJTcdarP6UZtCE6yZGMMVaLMdtCG9nJ3Lx999XQy9aELwcyi4xATkeo").unwrap();
+
+    assert_eq!(act, exp);
+}
+
+#[test]
 #[cfg(ledger_bitcoin)]
 pub fn address_within_xpub() {
     let mut manager = LedgerKey::new().unwrap();

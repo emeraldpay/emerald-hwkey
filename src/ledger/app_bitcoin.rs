@@ -10,7 +10,6 @@ use std::convert::TryFrom;
 use std::str::{from_utf8};
 use bitcoin::{
     Transaction,
-    OutPoint,
     Script,
     Address,
     Network,
@@ -18,7 +17,7 @@ use bitcoin::{
     PublicKey,
     SigHashType,
     TxIn,
-    consensus::{deserialize, serialize},
+    consensus::{serialize},
     blockdata::{
         script::Builder,
         opcodes
@@ -203,16 +202,14 @@ pub struct SignTx {
 
 #[derive(Clone)]
 pub struct UnsignedInput {
-    pub raw: Vec<u8>,
-    pub vout: u32,
+    pub index: usize,
     pub amount: u64,
     pub hd_path: StandardHDPath
 }
 
 #[derive(Clone)]
 struct InputDetails {
-    prev_tx: Transaction,
-    prev_tx_parsed: TxIn,
+    prev_tx: TxIn,
     amount: u64,
     from_address: AddressResponse,
     redeem: Script,
@@ -275,21 +272,9 @@ impl BitcoinApp {
                 network: config.network,
                 ..GetAddressOpts::default()
             })?;
-            let prev_tx = deserialize::<Transaction>(ui.raw.as_slice())
-                .map_err(|_| HWKeyError::InputError("Invalid input tx data".to_string()))?;
-            let txid = prev_tx.txid().clone();
-            let sequence = tx.input.iter()
-                .find(|it| it.previous_output.txid == txid && it.previous_output.vout == ui.vout)
-                .map(|it| it.sequence)
-                .unwrap_or(TxIn::default().sequence);
 
             inputs.push(InputDetails {
-                prev_tx,
-                prev_tx_parsed: TxIn {
-                    previous_output: OutPoint::new(txid, ui.vout),
-                    sequence,
-                    ..Default::default()
-                },
+                prev_tx: tx.input[ui.index].clone(),
                 amount: ui.amount,
                 from_address: address.clone(),
                 hd_path: ui.hd_path.clone(),
@@ -330,7 +315,7 @@ impl BitcoinApp {
             // 0x02 if the input is passed as a Segregated Witness Input
             data.push(0x02);
             // original 36 bytes prevout
-            data.extend_from_slice(serialize(&ti.prev_tx_parsed.previous_output).as_slice());
+            data.extend_from_slice(serialize(&ti.prev_tx.previous_output).as_slice());
             // and the original 8 bytes little endian amount associated to this input
             data.write_u64::<LittleEndian>(ti.amount)
                 .map_err(|_| HWKeyError::EncodingError("Failed to encode amount".to_string()))?;
@@ -347,7 +332,7 @@ impl BitcoinApp {
                 data.extend_from_slice(serialize(&VarInt(0u64)).as_slice());
             };
             // sequence
-            data.extend_from_slice(serialize(&ti.prev_tx_parsed.sequence).as_slice());
+            data.extend_from_slice(serialize(&ti.prev_tx.sequence).as_slice());
         }
 
 

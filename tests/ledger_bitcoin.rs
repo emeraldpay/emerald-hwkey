@@ -296,7 +296,7 @@ pub fn sign_bitcoin_tx_1() {
     let from_amount = 4567800;
     let to_amount = from_amount - 123;
 
-    let from_tx = hex::decode(
+    let _from_tx = hex::decode(
         "02000000000103a44b1457ed26392b5b2db07ec82b06655cdb8b8b3e9e0fdc87b5e7f1fb70cb4f0000000000fdffffff580267659dc032ff9abfd505f517cae5536f35d32340c2fc0f5bad60cd8301bc0000000000fdffffffb0ac2c5d2754f7d08d0a7149804a87f4acdc1cf946375315d0e78d89a604c9840000000000fdffffff02f8b245000000000016001447fa122db7f2f7cf70374dd43c0844397beb14e27400100000000000160014f126d5ec29cd9f11137a9b2521d7acae4bffe230024730440220259e7a1fbe2b86f7e060370d957c52d5e3895619f13d349d86ff513addf8086a02206c6d0e309534ed5c28097cf06a4f9587d78329f97552f4cfb1635f5da961a24d012103ffa3949e4cbe4f2bbef487f829ea4c4f5ebb085b19643352b1c86be74c608c060247304402205d634724f41485bc4a2f0f13a6bc68b63ccefccdb7a48fb012cee168f774ac5602201ddf559cff8fe478dc75581a9340da058dab18f3cbd16c424156d1959bd901b1012103651ad466beec0d9efcbfae469fb846441fa440f3efa079c956d9652696ff81d002473044022049a9014a540e712805f2e40c6203c18ac01d2051199069ae19b0abfda9af8d450220701d1b1ecdb5cb84364725ffd84e03a10c0041e295172ed92da9dd08d6b2ef900121033f571fb80d1371dfb65605e3515b658564e2ff578d105494eb9403b2dc5fff8c64701c00"
     ).unwrap();
 
@@ -327,10 +327,9 @@ pub fn sign_bitcoin_tx_1() {
     let signed = app.sign_tx(&mut tx, &SignTx {
         inputs: vec![
             UnsignedInput {
-                raw: from_tx,
+                index: 0,
                 amount: from_amount,
                 hd_path: StandardHDPath::from_str("m/84'/1'/0'/0/0").unwrap(),
-                vout: 0,
             }
         ],
         network: Network::Testnet,
@@ -362,7 +361,7 @@ pub fn sign_bitcoin_tx_2() {
     // total: 0.06816000 + 0.08156100 + 0.02 = 0.16972100
     //
     // as 0.15 to tb1qg9zx7vnkfs8yaycm66wz5tat6d9x29wrezhcr0
-    // change to tb1qe8nwur644jfmsazsnmj903kr70sqnt3n9vjvlh at m/84'/1'/0'/1/0
+    // change 0.01971643 to tb1qe8nwur644jfmsazsnmj903kr70sqnt3n9vjvlh at m/84'/1'/0'/1/0
 
 
     let amount1 = 6_816_000;
@@ -373,13 +372,13 @@ pub fn sign_bitcoin_tx_2() {
     let fee = 457;
     let change = amount1 + amount2 + amount3 - fee - send; // 1_972_100
 
-    let from_tx_1 = hex::decode(
+    let _from_tx_1 = hex::decode(
         "020000000001034ab029102f9545985dffeb84aa6c131b3aa2cca845e9af3f36fbab87bfd7c4630000000000fdffffff75528e91d314bfe1dd46fc9d29039f4aa26e77cad0ee9216d0679be2327d21410100000000fdffffff59fccb92f9fc864d2d859ca8138e41b819fd19a174c655e252b8d28e06d8cef60000000000fdffffff028dfd130000000000160014fdc9064a34c6832e9202890de348e28dea2203020001680000000000160014f9dd1c1fd2bba2d39ac46b030ead13a2b498c431024730440220349f9d1c2cfaf5860846c57bb3f737983b317374cfc6004c119c106bff8f7ea602203e2e711c901152369fa7e07c351600aeec8fe2ae12fa0c541e2866eec27b5dc70121026f1663582f56320136945949907af2560e09174fbaef222e0ecf3ec42f02964602473044022061aef3df16bb75f999f5a7a41b2eb8f58c0e1ad5c95f9f344dfe6c1d7dca1b2602202d92e72f5a28e04dc8f351cf921acbeb344ebf36f16f8d0a11ebc9b9f4e2c5c00121023146a3f0c25e3ce822010df2c7e7c94fde8b62d8b681e5b1cd6be7500cc00b980247304402206f1dec73409fa0627f5c9db1bcedb6bc65cb1456f6a6371675c2a8721e568f27022017daaf822f37c7375e45a5575072eace263176ead227a1a995c489c0d347ca2a012102e7d687dccbb4e087ee6be08905c751b414cdbb2a5d0f07b32d3bd21ddcee3bad9a761c00"
     ).unwrap();
-    let from_tx_2 = hex::decode(
+    let _from_tx_2 = hex::decode(
         "020000000001010c9e59b769dda1f07f6a5ee73dc1d03f700cb72c58ebe8d93605777fde5e600f0000000000fdffffff02c4737c0000000000160014c39876263c3586d4a1a3788e5921e04f74bef333ba84b60000000000160014a3bd8d0f8079c950809dcebb3b2f8096b63ac7b302473044022005130b3beadd1a81ea1d81a5bf0a6c88411041e98b128190878c3624a415e31b022035fc326373addd51de03843e0965c66e6b88c719d0b7feb0837dd21dcf9eb364012102da15fdbeabe35e1ba5b1c04b39027486ca5d9a3b8e1869717f6d26b11a06e0499a761c00"
     ).unwrap();
-    let from_tx_3 = hex::decode(
+    let _from_tx_3 = hex::decode(
         "02000000000101b391834f7140fb0d3fe5598233ef44897bba88a80de2f723af976bb1a5a9e0640100000000fdffffff02adff970000000000160014e3efd5d060de856a57960be437d7ea9644950bc280841e0000000000160014f9dd1c1fd2bba2d39ac46b030ead13a2b498c431024730440220629ccd06036cc0e28323a07a12eb723986d8bf3fe8912ab1c8bf0e4a78d82b920220298379996b203fa064d04552f444e1afdcee97e167d5458b5e0d85302b5314850121027e5b6c86962e5b1bcb4c06a6503c29ac542a56451c562361849bea0a2efa340f9c761c00"
     ).unwrap();
 
@@ -418,22 +417,19 @@ pub fn sign_bitcoin_tx_2() {
     let sign_with = SignTx {
         inputs: vec![
             UnsignedInput {
-                raw: from_tx_1,
+                index: 0,
                 amount: amount1,
                 hd_path: StandardHDPath::from_str("m/84'/1'/0'/0/1").unwrap(),
-                vout: 1,
             },
             UnsignedInput {
-                raw: from_tx_2,
+                index: 1,
                 amount: amount2,
                 hd_path: StandardHDPath::from_str("m/84'/1'/0'/0/2").unwrap(),
-                vout: 0,
             },
             UnsignedInput {
-                raw: from_tx_3,
+                index: 2,
                 amount: amount3,
                 hd_path: StandardHDPath::from_str("m/84'/1'/0'/0/1").unwrap(),
-                vout: 1,
             },
         ],
         network: Network::Testnet,

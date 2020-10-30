@@ -80,12 +80,19 @@ pub struct LedgerKey {
 }
 
 impl LedgerKey {
-    /// Creates new `Ledger Key Manager`
+    /// Create new `Ledger Key Manager`
     pub fn new() -> Result<LedgerKey, HWKeyError> {
         Ok(Self {
             hid: HidApi::new()?,
             device: None,
         })
+    }
+
+    /// Create new `Ledger Key Manager` and try to connect to actual ledger. Return error otherwise.
+    pub fn new_connected() -> Result<LedgerKey, HWKeyError> {
+        let mut instance = LedgerKey::new()?;
+        instance.connect()?;
+        Ok(instance)
     }
 
     /// List all available devices

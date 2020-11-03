@@ -52,8 +52,8 @@ pub enum AddressType {
     Bench32 = 2
 }
 
-pub struct BitcoinApp {
-    ledger: LedgerKey
+pub struct BitcoinApp<'a> {
+    ledger: &'a LedgerKey
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -216,9 +216,9 @@ struct InputDetails {
     hd_path: StandardHDPath
 }
 
-impl BitcoinApp {
+impl BitcoinApp<'_> {
 
-    pub fn new(ledger: LedgerKey) -> BitcoinApp {
+    pub fn new(ledger: &LedgerKey) -> BitcoinApp {
         BitcoinApp { ledger }
     }
 
@@ -441,7 +441,7 @@ impl BitcoinApp {
     }
 }
 
-impl PubkeyAddressApp for BitcoinApp {
+impl PubkeyAddressApp for BitcoinApp<'_> {
     fn get_extkey_at<P: HDPath>(&self, hd_path: &P) -> Result<Box<dyn AsExtendedKey>, HWKeyError> {
         let address = self.get_address(hd_path, GetAddressOpts {
             // disable verification since it needs only pubkey, and the app may be running different blockchain with different address format
@@ -500,7 +500,7 @@ impl TryFrom<Vec<u8>> for AppVersion {
     }
 }
 
-impl LedgerApp for BitcoinApp {
+impl LedgerApp for BitcoinApp<'_> {
     type Category = BitcoinApps;
 
     fn is_open(&self) -> Option<Self::Category> {

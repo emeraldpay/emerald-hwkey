@@ -19,8 +19,8 @@ const COMMAND_APP_CONFIG: u8 = 0x06;
 
 pub type SignatureBytes = [u8; ECDSA_SIGNATURE_BYTES];
 
-pub struct EthereumApp {
-    ledger: LedgerKey
+pub struct EthereumApp<'a> {
+    ledger: &'a LedgerKey
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -121,9 +121,9 @@ impl TryFrom<Vec<u8>> for AppVersion {
     }
 }
 
-impl EthereumApp {
+impl EthereumApp<'_> {
 
-    pub fn new(ledger: LedgerKey) -> EthereumApp {
+    pub fn new(ledger: &LedgerKey) -> EthereumApp {
         EthereumApp {
             ledger
         }
@@ -215,7 +215,7 @@ impl EthereumApp {
     }
 }
 
-impl PubkeyAddressApp for EthereumApp {
+impl PubkeyAddressApp for EthereumApp<'_> {
     fn get_extkey_at<P: HDPath>(&self, hd_path: &P) -> Result<Box<dyn AsExtendedKey>, HWKeyError> {
         let address = self.get_address(hd_path, false)?;
         Ok(Box::new(address))
@@ -228,7 +228,7 @@ pub enum EthereumApps {
     EthereumClassic
 }
 
-impl LedgerApp for EthereumApp {
+impl LedgerApp for EthereumApp<'_> {
     type Category = EthereumApps;
 
     fn is_open(&self) -> Option<Self::Category> {

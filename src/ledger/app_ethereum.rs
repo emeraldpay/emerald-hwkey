@@ -134,7 +134,7 @@ impl EthereumApp<'_> {
     /// # Arguments:
     /// hd_path - HD path, prefixed with count of derivation indexes
     ///
-    pub fn get_address<P: HDPath>(&self, hd_path: &P, confirm: bool) -> Result<AddressResponse, HWKeyError> {
+    pub fn get_address(&self, hd_path: &dyn HDPath, confirm: bool) -> Result<AddressResponse, HWKeyError> {
         let apdu = ApduBuilder::new(COMMAND_GET_ADDRESS)
             // 00 : return address
             // 01 : display address and confirm before returning
@@ -154,10 +154,10 @@ impl EthereumApp<'_> {
     /// tx - RLP encoded transaction
     /// hd_path - HD path, prefixed with count of derivation indexes
     ///
-    pub fn sign_transaction<P: HDPath>(
+    pub fn sign_transaction(
         &self,
         tx: &[u8],
-        hd_path: &P,
+        hd_path: &dyn HDPath,
     ) -> Result<SignatureBytes, HWKeyError> {
 
         let _mock = Vec::new();
@@ -209,14 +209,14 @@ impl EthereumApp<'_> {
         AppVersion::try_from(resp).map_err(|_| HWKeyError::EncodingError("Invalid version config".to_string()))
     }
 
-    fn is_path_available<P: HDPath>(&self, hd_path: &P) -> bool {
+    fn is_path_available(&self, hd_path: &dyn HDPath) -> bool {
         self.get_address(hd_path, false)
             .map_or(false, |_| true)
     }
 }
 
 impl PubkeyAddressApp for EthereumApp<'_> {
-    fn get_extkey_at<P: HDPath>(&self, hd_path: &P) -> Result<Box<dyn AsExtendedKey>, HWKeyError> {
+    fn get_extkey_at(&self, hd_path: &dyn HDPath) -> Result<Box<dyn AsExtendedKey>, HWKeyError> {
         let address = self.get_address(hd_path, false)?;
         Ok(Box::new(address))
     }

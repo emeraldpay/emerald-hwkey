@@ -19,12 +19,12 @@ pub trait PubkeyAddressApp {
 
     ///
     /// Get key at hd path
-    fn get_extkey_at<P: HDPath>(&self, hd_path: &P) -> Result<Box<dyn AsExtendedKey>, HWKeyError>;
+    fn get_extkey_at(&self, hd_path: &dyn HDPath) -> Result<Box<dyn AsExtendedKey>, HWKeyError>;
 
     /// Get XPub at the specified hd path (usually it's a path to an account)
     /// `network` is applicable to _Bitcoin_ blockchain, and it only affects how XPub is serialized.
     /// For non-bitcoin blockchains `Bitcoin::Mainnet` may be used.
-    fn get_xpub<P: HDPath>(&self, hd_path: &P, network: Network) -> Result<ExtendedPubKey, HWKeyError> {
+    fn get_xpub(&self, hd_path: &dyn HDPath, network: Network) -> Result<ExtendedPubKey, HWKeyError> {
         let pubkey = self.get_extkey_at(hd_path)?;
         let index = hd_path.get(hd_path.len() - 1).unwrap();
 

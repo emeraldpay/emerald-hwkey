@@ -14,7 +14,7 @@ path = "src/lib.rs"
 
 [dependencies]
 hidapi = "1.2.3"
-hdpath = "0.4"
+hdpath = "0.6"
 hex = "0.4.2"
 log = "0.4.11"
 bitcoin = "0.25.0"

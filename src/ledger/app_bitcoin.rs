@@ -227,12 +227,12 @@ impl BitcoinApp<'_> {
     /// # Arguments:
     /// hd_path - HD path, prefixed with count of derivation indexes
     ///
-    pub fn get_address<P: HDPath>(&self, hd_path: &P, opts: GetAddressOpts) -> Result<AddressResponse, HWKeyError> {
+    pub fn get_address(&self, hd_path: &dyn HDPath, opts: GetAddressOpts) -> Result<AddressResponse, HWKeyError> {
         let handle = self.ledger.open()?;
         BitcoinApp::get_address_internal(&handle, hd_path, opts)
     }
 
-    fn get_address_internal<P: HDPath>(device: &HidDevice, hd_path: &P, opts: GetAddressOpts) -> Result<AddressResponse, HWKeyError> {
+    fn get_address_internal(device: &HidDevice, hd_path: &dyn HDPath, opts: GetAddressOpts) -> Result<AddressResponse, HWKeyError> {
         let apdu = ApduBuilder::new(COMMAND_GET_ADDRESS)
             .with_data(hd_path.to_bytes().as_slice())
             .with_p1(if opts.confirmation {1} else {0})
@@ -442,7 +442,7 @@ impl BitcoinApp<'_> {
 }
 
 impl PubkeyAddressApp for BitcoinApp<'_> {
-    fn get_extkey_at<P: HDPath>(&self, hd_path: &P) -> Result<Box<dyn AsExtendedKey>, HWKeyError> {
+    fn get_extkey_at(&self, hd_path: &dyn HDPath) -> Result<Box<dyn AsExtendedKey>, HWKeyError> {
         let address = self.get_address(hd_path, GetAddressOpts {
             // disable verification since it needs only pubkey, and the app may be running different blockchain with different address format
             verify_string: false,

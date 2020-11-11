@@ -27,7 +27,9 @@ use hidapi::{HidApi, HidDevice, DeviceInfo};
 use std::{
     thread,
     time,
+    sync::{Arc, Mutex}
 };
+use std::ops::Deref;
 
 pub const CHUNK_SIZE: usize = 255;
 
@@ -74,16 +76,27 @@ impl From<&DeviceInfo> for Device {
 /// `Wallet Manager` to handle all interaction with HD wallet
 pub struct LedgerKey {
     /// HID point used for communication
-    hid: HidApi,
+    hid: Arc<Mutex<HidApi>>,
     /// List of available wallets
     device: Option<Device>,
+}
+
+lazy_static! {
+    // Keep a copy of the HidApi. Creating a new one is expensive, and if on existing was not closed, it
+    // fails to create a new instance for a new use.
+    static ref SHARED_HID: Option<Arc<Mutex<HidApi>>> = HidApi::new()
+        .ok()
+        .map(|h| Arc::new(Mutex::new(h)));
 }
 
 impl LedgerKey {
     /// Create new `Ledger Key Manager`
     pub fn new() -> Result<LedgerKey, HWKeyError> {
+        let hid = SHARED_HID.as_ref()
+            .ok_or(HWKeyError::CommError("HID API is not available".to_string()))?
+            .clone();
         Ok(Self {
-            hid: HidApi::new()?,
+            hid,
             device: None,
         })
     }
@@ -109,10 +122,11 @@ impl LedgerKey {
 
     /// Update device list
     pub fn connect(&mut self) -> Result<(), HWKeyError> {
-        self.hid.refresh_devices()
+        let mut hid = self.hid.deref().lock().unwrap();
+        hid.refresh_devices()
             .map_err(|_| HWKeyError::CommError("Failed to refresh".to_string()))?;
 
-        let current = self.hid.device_list().find(|hid_info| {
+        let current = hid.device_list().find(|hid_info| {
             debug!("device {:?}", hid_info);
             hid_info.vendor_id() == LEDGER_VID
                 && (hid_info.product_id() == LEDGER_S_PID_1
@@ -123,6 +137,7 @@ impl LedgerKey {
         });
 
         if current.is_none() {
+            debug!("No device connected");
             self.device = None;
             return Err(HWKeyError::Unavailable);
         }
@@ -139,13 +154,13 @@ impl LedgerKey {
             return Err(HWKeyError::Unavailable);
         }
         let target = self.device.as_ref().unwrap();
-        // up to 10 tries, starting from 100ms increasing by 75ms, in total 1450ms max
-        let mut retry_delay = 100;
-        for _ in 0..10 {
+        // up to 10 tries, starting from 50ms increasing by 25ms, in total 19250ms max
+        let mut retry_delay = 50;
+        for _ in 0..11 {
             //
             //serial number is always 0001
             if let Ok(h) = self
-                .hid
+                .hid.lock().unwrap()
                 .open(target.hid_info.vendor_id(), target.hid_info.product_id())
             {
                 match ping(&h) {
@@ -158,7 +173,7 @@ impl LedgerKey {
                 }
             }
             thread::sleep(time::Duration::from_millis(retry_delay));
-            retry_delay += 75;
+            retry_delay += 25;
         }
 
         // used by another application

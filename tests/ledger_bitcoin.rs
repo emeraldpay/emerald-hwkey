@@ -297,7 +297,7 @@ pub fn address_within_xpub() {
             assert_eq!(address_exp, address_act);
 
             // because ledger may stuck if call it too fast
-            std::thread::sleep(std::time::Duration::from_millis(50));
+            std::thread::sleep(std::time::Duration::from_millis(25));
         }
     }
 }

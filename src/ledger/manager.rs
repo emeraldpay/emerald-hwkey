@@ -81,22 +81,14 @@ pub struct LedgerKey {
     device: Option<Device>,
 }
 
-lazy_static! {
-    // Keep a copy of the HidApi. Creating a new one is expensive, and if on existing was not closed, it
-    // fails to create a new instance for a new use.
-    static ref SHARED_HID: Option<Arc<Mutex<HidApi>>> = HidApi::new()
-        .ok()
-        .map(|h| Arc::new(Mutex::new(h)));
-}
-
 impl LedgerKey {
+
     /// Create new `Ledger Key Manager`
+    /// Make sure you have only one instance at a time, because when it's created it locks HID API to the instance.
     pub fn new() -> Result<LedgerKey, HWKeyError> {
-        let hid = SHARED_HID.as_ref()
-            .ok_or(HWKeyError::CommError("HID API is not available".to_string()))?
-            .clone();
+        let hid = HidApi::new().map_err(|_| HWKeyError::CommError("HID API is not available".to_string()))?;
         Ok(Self {
-            hid,
+            hid: Arc::new(Mutex::new(hid)),
             device: None,
         })
     }
@@ -122,7 +114,9 @@ impl LedgerKey {
 
     /// Update device list
     pub fn connect(&mut self) -> Result<(), HWKeyError> {
-        let mut hid = self.hid.deref().lock().unwrap();
+        let hid_mutex = self.hid.deref();
+        let mut hid = hid_mutex.lock()
+            .map_err(|_| HWKeyError::CommError("HID API is locked".to_string()))?;
         hid.refresh_devices()
             .map_err(|_| HWKeyError::CommError("Failed to refresh".to_string()))?;
 
@@ -139,6 +133,7 @@ impl LedgerKey {
         if current.is_none() {
             debug!("No device connected");
             self.device = None;
+
             return Err(HWKeyError::Unavailable);
         }
 
@@ -178,7 +173,7 @@ impl LedgerKey {
 
         // used by another application
         Err(HWKeyError::CommError(format!(
-            "Can't open device: {:?}",
+            "Device is locked by another application: {:?}",
             target.hid_info
         )))
     }

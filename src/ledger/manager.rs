@@ -33,13 +33,18 @@ use std::ops::Deref;
 
 pub const CHUNK_SIZE: usize = 255;
 
-const LEDGER_VID: u16 = 0x2c97;
-const LEDGER_S_PID_1: u16 = 0x0001; // for Nano S model with Bitcoin App
-const LEDGER_S_PID_2: u16 = 0x1011; // for Nano S model without any app
-const LEDGER_S_PID_3: u16 = 0x1015; // for Nano S model with Ethereum or Ethereum Classic App
 
-const LEDGER_X_PID_1: u16 = 0x4011; // for Nano X model (official)
-const LEDGER_X_PID_2: u16 = 0x0004; // for Nano X model (in the wild)
+// reference:
+// - https://github.com/LedgerHQ/ledger-live/blob/ff0897c2d317d06f5d439e0884dc48ad9ae7315a/android/app/src/main/res/xml/usb_device_filter.xml
+//
+const LEDGER_VID: u16 = 0x2c97; // 11415
+const LEDGER_S_PID_1: u16 = 0x0001; // 1    - for Nano S model with Bitcoin App
+const LEDGER_S_PID_2: u16 = 0x1011; // 4113 - for Nano S model without any app. also called Nano S16 in Ledger sources
+const LEDGER_S_PID_3: u16 = 0x1015; // 4117 - for Nano S model with Ethereum or Ethereum Classic App
+
+const LEDGER_X_PID_1: u16 = 0x0004; // 4     - Nano X model, official
+const LEDGER_X_PID_2: u16 = 0x4011; // 16401 - Nano X model, some versions
+const LEDGER_X_PID_3: u16 = 0x4015; // 16405 - Nano X model, some versions, with Ethereum App or Bitcoin App
 
 /// Type used for device listing,
 /// String corresponds to file descriptor of the device
@@ -127,7 +132,8 @@ impl LedgerKey {
                 || hid_info.product_id() == LEDGER_S_PID_2
                 || hid_info.product_id() == LEDGER_S_PID_3
                 || hid_info.product_id() == LEDGER_X_PID_1
-                || hid_info.product_id() == LEDGER_X_PID_2)
+                || hid_info.product_id() == LEDGER_X_PID_2
+                || hid_info.product_id() == LEDGER_X_PID_3)
         });
 
         if current.is_none() {

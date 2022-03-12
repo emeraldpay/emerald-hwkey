@@ -1,7 +1,7 @@
 [package]
 name = "emerald-hwkey"
 description = "Emerald HWKey - Harware Cryptocurrency Key Access"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Igor Artamonov <igor@artamonov.email>", "Dmitry Ulanov <dulanov@gmail.com>", "Constantine Kryvomaz <kostiyantynk@gmail.com>"]
 edition = "2018"
 readme = "crates.md"

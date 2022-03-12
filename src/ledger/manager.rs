@@ -45,6 +45,7 @@ const LEDGER_S_PID_3: u16 = 0x1015; // 4117 - for Nano S model with Ethereum or 
 const LEDGER_X_PID_1: u16 = 0x0004; // 4     - Nano X model, official
 const LEDGER_X_PID_2: u16 = 0x4011; // 16401 - Nano X model, some versions
 const LEDGER_X_PID_3: u16 = 0x4015; // 16405 - Nano X model, some versions, with Ethereum App or Bitcoin App
+const LEDGER_X_PID_4: u16 = 0x40;   // 64    - Nano X, new official
 
 /// Type used for device listing,
 /// String corresponds to file descriptor of the device
@@ -133,7 +134,8 @@ impl LedgerKey {
                 || hid_info.product_id() == LEDGER_S_PID_3
                 || hid_info.product_id() == LEDGER_X_PID_1
                 || hid_info.product_id() == LEDGER_X_PID_2
-                || hid_info.product_id() == LEDGER_X_PID_3)
+                || hid_info.product_id() == LEDGER_X_PID_3
+                || hid_info.product_id() == LEDGER_X_PID_4)
         });
 
         if current.is_none() {

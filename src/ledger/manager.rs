@@ -82,6 +82,7 @@ impl From<&DeviceInfo> for Device {
 /// `Wallet Manager` to handle all interaction with HD wallet
 pub struct LedgerKey {
     /// HID point used for communication
+    #[cfg(not(feature = "speculos"))]
     hid: Arc<Mutex<HidApi>>,
     /// List of available wallets
     device: Option<Device>,
@@ -91,10 +92,18 @@ impl LedgerKey {
 
     /// Create new `Ledger Key Manager`
     /// Make sure you have only one instance at a time, because when it's created it locks HID API to the instance.
+    #[cfg(not(feature = "speculos"))]
     pub fn new() -> Result<LedgerKey, HWKeyError> {
         let hid = HidApi::new().map_err(|_| HWKeyError::CommError("HID API is not available".to_string()))?;
         Ok(Self {
             hid: Arc::new(Mutex::new(hid)),
+            device: None,
+        })
+    }
+
+    #[cfg(feature = "speculos")]
+    pub fn new() -> Result<LedgerKey, HWKeyError> {
+        Ok(Self {
             device: None,
         })
     }
@@ -119,6 +128,7 @@ impl LedgerKey {
     }
 
     /// Update device list
+    #[cfg(not(feature = "speculos"))]
     pub fn connect(&mut self) -> Result<(), HWKeyError> {
         let hid_mutex = self.hid.deref();
         let mut hid = hid_mutex.lock()
@@ -152,6 +162,17 @@ impl LedgerKey {
         Ok(())
     }
 
+    #[cfg(feature = "speculos")]
+    pub fn connect(&mut self) -> Result<(), HWKeyError> {
+        let connected = self.open()?.is_available()?;
+        if connected {
+            Ok(())
+        } else {
+            Err(HWKeyError::Unavailable)
+        }
+    }
+
+    #[cfg(not(feature = "speculos"))]
     pub fn open(&self) -> Result<HidDevice, HWKeyError> {
         if self.device.is_none() {
             return Err(HWKeyError::Unavailable);
@@ -162,11 +183,11 @@ impl LedgerKey {
         for _ in 0..11 {
             //
             //serial number is always 0001
-            if let Ok(h) = self
+            if let Ok(mut h) = self
                 .hid.lock().unwrap()
                 .open(target.hid_info.vendor_id(), target.hid_info.product_id())
             {
-                match ping(&h) {
+                match ping(&mut h) {
                     Ok(v) => {
                         if v {
                             return Ok(h);
@@ -184,5 +205,10 @@ impl LedgerKey {
             "Device is locked by another application: {:?}",
             target.hid_info
         )))
+    }
+
+    #[cfg(feature = "speculos")]
+    pub fn open(&self) -> Result<crate::ledger::speculos::Speculos, HWKeyError> {
+        Ok(crate::ledger::speculos::Speculos::create_env())
     }
 }

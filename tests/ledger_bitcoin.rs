@@ -34,7 +34,7 @@ lazy_static! {
 }
 
 #[test]
-#[cfg(ledger_bitcoin)]
+#[cfg(all(integration_test, ledger_bitcoin))]
 pub fn is_bitcoin_open() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
@@ -54,7 +54,7 @@ pub fn is_bitcoin_closed() {
 }
 
 #[test]
-#[cfg(ledger_bitcoin_test)]
+#[cfg(all(integration_test, ledger_bitcoin_test))]
 pub fn is_bitcoin_test_open() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
@@ -64,7 +64,7 @@ pub fn is_bitcoin_test_open() {
 }
 
 #[test]
-#[cfg(ledger_bitcoin)]
+#[cfg(all(integration_test, ledger_bitcoin))]
 pub fn get_bitcoin_address() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
@@ -87,7 +87,7 @@ pub fn get_bitcoin_address() {
 }
 
 #[test]
-#[cfg(ledger_bitcoin)]
+#[cfg(all(integration_test, ledger_bitcoin))]
 pub fn get_bitcoin_address_legacy() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
@@ -112,7 +112,7 @@ pub fn get_bitcoin_address_legacy() {
 }
 
 #[test]
-#[cfg(ledger_bitcoin)]
+#[cfg(all(integration_test, ledger_bitcoin))]
 pub fn get_bitcoin_address_segwit_compat() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
@@ -137,7 +137,7 @@ pub fn get_bitcoin_address_segwit_compat() {
 }
 
 #[test]
-#[cfg(ledger_bitcoin_test)]
+#[cfg(all(integration_test, ledger_bitcoin_test))]
 pub fn get_bitcoin_address_testnet() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
@@ -165,7 +165,7 @@ pub fn get_bitcoin_address_testnet() {
 }
 
 #[test]
-#[cfg(ledger_bitcoin)]
+#[cfg(all(integration_test, ledger_bitcoin))]
 pub fn confirm_get_bitcoin_address() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
@@ -177,7 +177,7 @@ pub fn confirm_get_bitcoin_address() {
 }
 
 #[test]
-#[cfg(ledger_bitcoin)]
+#[cfg(all(integration_test, ledger_bitcoin))]
 pub fn compat_get_bitcoin_address() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
@@ -189,7 +189,7 @@ pub fn compat_get_bitcoin_address() {
 }
 
 #[test]
-#[cfg(ledger_bitcoin)]
+#[cfg(all(integration_test, ledger_bitcoin))]
 pub fn get_xpub_0() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
@@ -204,7 +204,7 @@ pub fn get_xpub_0() {
 }
 
 #[test]
-#[cfg(ledger_bitcoin)]
+#[cfg(all(integration_test, ledger_bitcoin))]
 pub fn get_xpub_1() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
@@ -219,7 +219,7 @@ pub fn get_xpub_1() {
 }
 
 #[test]
-#[cfg(ledger_bitcoin)]
+#[cfg(all(integration_test, ledger_bitcoin))]
 pub fn get_xpub_84_0() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
@@ -236,7 +236,7 @@ pub fn get_xpub_84_0() {
 }
 
 #[test]
-#[cfg(ledger_bitcoin)]
+#[cfg(all(integration_test, ledger_bitcoin))]
 pub fn get_xpub_84_17() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
@@ -253,7 +253,7 @@ pub fn get_xpub_84_17() {
 }
 
 #[test]
-#[cfg(ledger_bitcoin_test)]
+#[cfg(all(integration_test, ledger_bitcoin_test))]
 pub fn get_xpub_test() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
@@ -268,7 +268,7 @@ pub fn get_xpub_test() {
 }
 
 #[test]
-#[cfg(ledger_bitcoin)]
+#[cfg(all(integration_test, ledger_bitcoin))]
 pub fn address_within_xpub() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
@@ -303,7 +303,7 @@ pub fn address_within_xpub() {
 }
 
 #[test]
-#[cfg(ledger_bitcoin_test)]
+#[cfg(all(integration_test, ledger_bitcoin_test))]
 pub fn sign_bitcoin_tx_1() {
     // send 0.04567677 from tb1qglapytdh7tmu7uphfh2rczzy89a7k98z5p3era at m/84'/1'/0'/0/0
     // to tb1qg9zx7vnkfs8yaycm66wz5tat6d9x29wrezhcr0
@@ -362,7 +362,7 @@ pub fn sign_bitcoin_tx_1() {
 }
 
 #[test]
-#[cfg(ledger_bitcoin_test)]
+#[cfg(all(integration_test, ledger_bitcoin_test))]
 pub fn sign_bitcoin_tx_2() {
     // utxo:
     // aa622e3b4822e4a4339d9491c5b9b55716ee30ff9d9a1654f393889dbd8f45aa : 1 -> 0.06816000 -> tb1ql8w3c87jhw3d8xkydvpsatgn526f33p3cqm3vm

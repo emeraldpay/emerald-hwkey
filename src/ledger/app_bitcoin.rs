@@ -30,6 +30,7 @@ use hdpath::{StandardHDPath, HDPath};
 use sha2::{Sha256, Digest};
 use ripemd160::Ripemd160;
 use bitcoin::util::bip32::{ChainCode};
+use crate::ledger::comm::LedgerConnection;
 use crate::ledger::commons::as_compact;
 use crate::ledger::traits::{AsPubkey, AsChainCode, PubkeyAddressApp, AsExtendedKey, LedgerApp};
 
@@ -228,17 +229,17 @@ impl BitcoinApp<'_> {
     /// hd_path - HD path, prefixed with count of derivation indexes
     ///
     pub fn get_address(&self, hd_path: &dyn HDPath, opts: GetAddressOpts) -> Result<AddressResponse, HWKeyError> {
-        let handle = self.ledger.open()?;
-        BitcoinApp::get_address_internal(&handle, hd_path, opts)
+        let mut handle = self.ledger.open()?;
+        BitcoinApp::get_address_internal(&mut handle, hd_path, opts)
     }
 
-    fn get_address_internal(device: &HidDevice, hd_path: &dyn HDPath, opts: GetAddressOpts) -> Result<AddressResponse, HWKeyError> {
+    fn get_address_internal(device: &mut dyn LedgerConnection, hd_path: &dyn HDPath, opts: GetAddressOpts) -> Result<AddressResponse, HWKeyError> {
         let apdu = ApduBuilder::new(COMMAND_GET_ADDRESS)
             .with_data(hd_path.to_bytes().as_slice())
             .with_p1(if opts.confirmation {1} else {0})
             .with_p2(opts.address_type as u8)
             .build();
-        sendrecv(&device, &apdu)
+        sendrecv(device, &apdu)
             .and_then(|res| AddressResponse::try_from((res, opts)))
     }
 
@@ -258,7 +259,7 @@ impl BitcoinApp<'_> {
     /// Supports only Trusted Segwit tx.
     /// Trusted Segwit is supported only after 1.4 of the Ledger Firmware
     pub fn sign_tx(&self, tx: &mut Transaction, config: &SignTx) -> Result<Vec<Vec<u8>>, HWKeyError> {
-        let device = self.ledger.open()?;
+        let mut device = self.ledger.open()?;
         // Protocol:
         // 1. The transaction shall be processed first with all inputs having a null script length
         //    (to be done twice if the dongle has been powercycled to retrieve the authorization code)
@@ -268,7 +269,7 @@ impl BitcoinApp<'_> {
         let mut inputs: Vec<InputDetails> = Vec::with_capacity(tx.input.len());
 
         for ui in config.inputs.iter() {
-            let address = BitcoinApp::get_address_internal(&device, &ui.hd_path, GetAddressOpts {
+            let address = BitcoinApp::get_address_internal(&mut device, &ui.hd_path, GetAddressOpts {
                 network: config.network,
                 ..GetAddressOpts::default()
             })?;
@@ -282,17 +283,17 @@ impl BitcoinApp<'_> {
             });
         }
 
-        self.start_untrusted_hash_tx(&device, true, &inputs, &tx, false)?;
+        self.start_untrusted_hash_tx(&mut device, true, &inputs, &tx, false)?;
 
         // finalize to get hash
-        self.finalize_outputs(&device, &tx)?;
+        self.finalize_outputs(&mut device, &tx)?;
 
         // make actual signatures
         let mut signatures = Vec::with_capacity(inputs.len());
         for (i, input) in inputs.iter().enumerate() {
             let ic = input.clone();
-            self.start_untrusted_hash_tx(&device, false,&vec![ic], &tx, true)?;
-            let mut signature = self.untrusted_hash_sign(&device, input, tx.lock_time)?;
+            self.start_untrusted_hash_tx(&mut device, false,&vec![ic], &tx, true)?;
+            let mut signature = self.untrusted_hash_sign(&mut device, input, tx.lock_time)?;
             // Signed hash, as ASN-1 encoded R & S components. Mask first byte with 0xFE
             signature[0] = signature[0] & 0xfe;
             tx.input[i].witness = vec![
@@ -305,7 +306,7 @@ impl BitcoinApp<'_> {
     }
 
     // see https://github.com/LedgerHQ/app-bitcoin/blob/master/doc/btc.asc#untrusted-hash-transaction-input-start
-    fn start_untrusted_hash_tx(&self, device: &HidDevice, is_new_tx: bool, inputs: &Vec<InputDetails>, tx: &Transaction, second_pass: bool) -> Result<(), HWKeyError> {
+    fn start_untrusted_hash_tx(&self, device: &mut dyn LedgerConnection, is_new_tx: bool, inputs: &Vec<InputDetails>, tx: &Transaction, second_pass: bool) -> Result<(), HWKeyError> {
         let mut data: Vec<u8> = Vec::new();
         // needs version
         data.write_u32::<LittleEndian>(tx.version as u32)
@@ -373,12 +374,12 @@ impl BitcoinApp<'_> {
                 .with_p2(p2)
                 .with_data(chunk)
                 .build();
-            sendrecv(&device, &apdu)?;
+            sendrecv(device, &apdu)?;
         }
         Ok(())
     }
 
-    fn untrusted_hash_sign(&self, device: &HidDevice, input: &InputDetails, locktime: u32) -> Result<Vec<u8>, HWKeyError> {
+    fn untrusted_hash_sign(&self, device: &mut dyn LedgerConnection, input: &InputDetails, locktime: u32) -> Result<Vec<u8>, HWKeyError> {
         let mut data: Vec<u8> = Vec::new();
         data.extend_from_slice(input.hd_path.to_bytes().as_slice());
         data.push(0x00); // RFU (0x00)
@@ -390,10 +391,10 @@ impl BitcoinApp<'_> {
             .with_p2(0x00)
             .with_data(data.as_slice())
             .build();
-        sendrecv(&device, &apdu)
+        sendrecv(device, &apdu)
     }
 
-    fn finalize_outputs(&self, device: &HidDevice, tx: &Transaction) -> Result<(), HWKeyError> {
+    fn finalize_outputs(&self, device: &mut dyn LedgerConnection, tx: &Transaction) -> Result<(), HWKeyError> {
         let mut data: Vec<u8> = Vec::new();
         data.extend_from_slice(serialize(&VarInt(tx.output.len() as u64)).as_slice());
         for output in &tx.output {
@@ -416,7 +417,7 @@ impl BitcoinApp<'_> {
                 .with_p2(0x00)
                 .with_data(chunk)
                 .build();
-            let result = sendrecv(&device, &apdu)?;
+            let result = sendrecv(device, &apdu)?;
             if last {
                 if result.ne(&vec![0x00u8, 0x00u8]) {
                     return Err(HWKeyError::CryptoError("Validation required".to_string()))
@@ -433,7 +434,8 @@ impl BitcoinApp<'_> {
         if device.is_err() {
             return None
         }
-        let resp = sendrecv(&device.unwrap(), &apdu);
+        let mut device = device.unwrap();
+        let resp = sendrecv(&mut device, &apdu);
         if resp.is_err() {
             return None
         }
@@ -460,7 +462,7 @@ pub enum BitcoinApps {
 }
 
 #[derive(Clone, Eq, PartialEq, Debug)]
-struct AppVersion {
+pub struct AppVersion {
     p2pkh: [u8; 2],
     p2sh: [u8; 2],
     family: u8,
@@ -520,7 +522,7 @@ impl LedgerApp for BitcoinApp<'_> {
 
 #[cfg(test)]
 mod tests {
-    use crate::ledger::app_bitcoin::{AddressResponse, GetAddressOpts, AppVersion};
+    use crate::ledger::app_bitcoin::{AddressResponse, GetAddressOpts, AppVersion, BitcoinApp};
     use std::convert::TryFrom;
     use bitcoin::util::psbt::serialize::Serialize;
     use bitcoin::Address;

@@ -31,7 +31,7 @@ pub struct APDU {
 
 impl fmt::Debug for APDU {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let d = vec![].clone_from(&self.data);
+        let d = hex::encode(&self.data.clone());
         write!(
             f,
             "APDU {{ cla: 0x{:02x}, ins: 0x{:02x}, p1: 0x{:02x}, p2: 0x{:02x}, len: {}, data: {:?} }}",

@@ -143,8 +143,8 @@ impl EthereumApp<'_> {
             .with_p2(0x01)
             .with_data(hd_path.to_bytes().as_slice())
             .build();
-        let handle = self.ledger.open()?;
-        sendrecv(&handle, &apdu)
+        let mut handle = self.ledger.open()?;
+        sendrecv(&mut handle, &apdu)
             .and_then(|res| AddressResponse::try_from(res))
     }
 
@@ -176,15 +176,15 @@ impl EthereumApp<'_> {
             return Err(HWKeyError::OtherError("Device not selected".to_string()));
         }
 
-        let handle = self.ledger.open()?;
-        let mut res = sendrecv(&handle, &init_apdu)?;
+        let mut handle = self.ledger.open()?;
+        let mut res = sendrecv(&mut handle, &init_apdu)?;
 
         for chunk in cont.chunks(CHUNK_SIZE) {
             let apdu_cont = ApduBuilder::new(COMMAND_SIGN_TRANSACTION)
                 .with_p1(0x80)
                 .with_data(chunk)
                 .build();
-            res = sendrecv(&handle, &apdu_cont)?;
+            res = sendrecv(&mut handle, &apdu_cont)?;
         }
         debug!("Received signature: {:?}", hex::encode(&res));
         match res.len() {
@@ -204,8 +204,8 @@ impl EthereumApp<'_> {
     pub fn get_version(&self) -> Result<AppVersion, HWKeyError> {
         let apdu = ApduBuilder::new(COMMAND_APP_CONFIG)
             .build();
-        let handle = self.ledger.open()?;
-        let resp = sendrecv(&handle, &apdu)?;
+        let mut handle = self.ledger.open()?;
+        let resp = sendrecv(&mut handle, &apdu)?;
         AppVersion::try_from(resp).map_err(|_| HWKeyError::EncodingError("Invalid version config".to_string()))
     }
 

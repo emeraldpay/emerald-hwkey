@@ -36,13 +36,22 @@ const INIT_DATA_SIZE: usize = HID_RPT_SIZE - 12;
 /// Size of data chunk expected in Cont USB HID Packets
 const CONT_DATA_SIZE: usize = HID_RPT_SIZE - 5;
 
-/// ISO 7816-4 defined response status words
-pub const SW_NO_ERROR: [u8; 2] = [0x90, 0x00];
-pub const SW_CONDITIONS_NOT_SATISFIED: [u8; 2] = [0x69, 0x85];
-pub const SW_WRONG_DATA: [u8; 2] = [0x6A, 0x80];
-pub const SW_WRONG_LENGTH: [u8; 2] = [0x67, 0x00];
-pub const SW_INCORRECT_PARAMETERS: [u8; 2] = [0x6b, 0x00];
-pub const SW_USER_CANCEL: [u8; 2] = [0x6A, 0x85];
+// ISO 7816-4 defined response status words
+// See: https://www.eftlab.com/knowledge-base/complete-list-of-apdu-responses/
+
+/// Wrong length
+pub const SW_WRONG_LENGTH: [u8; 2] =            [0x67, 0x00];
+/// Conditions of use not satisfied
+pub const SW_CONDITIONS_NOT_SATISFIED: [u8; 2] =[0x69, 0x85];
+/// The parameters in the data field are incorrect.
+pub const SW_WRONG_DATA: [u8; 2] =              [0x6A, 0x80];
+/// Lc inconsistent with TLV structure
+pub const SW_USER_CANCEL: [u8; 2] =             [0x6A, 0x85];
+/// Lc inconsistent with P1-P2
+pub const SW_INCONSISTENT_PS: [u8; 2] =         [0x6A, 0x87];
+/// Wrong parameter(s) P1-P2
+pub const SW_WRONG_PS: [u8; 2] =                [0x6b, 0x00];
+pub const SW_NO_ERROR: [u8; 2] =                [0x90, 0x00];
 
 /// Packs header with Ledgers magic numbers
 fn get_hid_header(channel: u16, index: usize) -> [u8; 5] {
@@ -115,7 +124,23 @@ pub fn sw_to_error(sw_h: u8, sw_l: u8) -> Result<(), HWKeyError> {
     }
 }
 
-pub fn send(dev: &HidDevice, apdu: &APDU) -> Result<(), HWKeyError> {
+pub trait LedgerConnection {
+    fn write(&mut self, data: &[u8]) -> Result<usize, HWKeyError>;
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, HWKeyError>;
+}
+
+#[cfg(not(feature = "speculos"))]
+impl LedgerConnection for HidDevice {
+    fn write(&mut self, data: &[u8]) -> Result<usize, HWKeyError> {
+        self.write(data).map_err(|e| HWKeyError::CommError(format!("{}", e)))
+    }
+
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, HWKeyError> {
+        self.read(buf).map_err(|e| HWKeyError::CommError(format!("{}", e)))
+    }
+}
+
+pub fn send(dev: &mut dyn LedgerConnection, apdu: &APDU) -> Result<(), HWKeyError> {
     let mut frame_index: usize = 0;
     let mut data_itr = apdu.data.iter();
     let mut init_sent = false;
@@ -149,7 +174,7 @@ pub fn send(dev: &HidDevice, apdu: &APDU) -> Result<(), HWKeyError> {
     Ok(())
 }
 
-pub fn recv_direct(dev: &HidDevice) -> Result<Vec<u8>, HWKeyError> {
+pub fn recv_direct(dev: &mut dyn LedgerConnection) -> Result<Vec<u8>, HWKeyError> {
     let mut frame_index: usize = 0;
     let channel = 0x101;
 
@@ -194,7 +219,7 @@ pub fn recv_direct(dev: &HidDevice) -> Result<Vec<u8>, HWKeyError> {
     Ok(data)
 }
 
-pub fn recv(dev: &HidDevice) -> Result<Vec<u8>, HWKeyError> {
+pub fn recv(dev: &mut dyn LedgerConnection) -> Result<Vec<u8>, HWKeyError> {
     let mut data = recv_direct(dev)?;
     match sw_to_error(data.pop().unwrap(), data.pop().unwrap()) {
         Ok(_) => Ok(data),
@@ -203,14 +228,14 @@ pub fn recv(dev: &HidDevice) -> Result<Vec<u8>, HWKeyError> {
 }
 
 ///
-pub fn sendrecv(dev: &HidDevice, apdu: &APDU) -> Result<Vec<u8>, HWKeyError> {
+pub fn sendrecv(dev: &mut dyn LedgerConnection, apdu: &APDU) -> Result<Vec<u8>, HWKeyError> {
     send(dev, apdu)?;
     recv(dev)
 }
 
 /// Ping Ledger device, returns `Ok(true)` if available. `Ok(false)` is unavailable (i.e., ping
 /// response is not zero). Or `Err` if failed to connect
-pub fn ping(dev: &HidDevice) -> Result<bool, HWKeyError> {
+pub fn ping(dev: &mut dyn LedgerConnection) -> Result<bool, HWKeyError> {
     let mut frame: [u8; (HID_RPT_SIZE + 1) as usize] = [0; (HID_RPT_SIZE + 1) as usize];
     let channel: u16 = 0x101;
     frame[1] = (channel >> 8) as u8;

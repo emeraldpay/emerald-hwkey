@@ -55,8 +55,10 @@ struct EventResponse {
 
 pub struct Speculos {
     url: String,
-    buf: Vec<u8>,
-    frame_seq: usize,
+    in_buf: Vec<u8>,
+    in_frame_seq: usize,
+    out_buf: Vec<u8>,
+    out_len: usize,
 }
 
 ///
@@ -92,9 +94,9 @@ impl Speculos {
         }
     }
 
-    fn apdu(&self, data: Vec<u8>) -> Result<Vec<u8>, HWKeyError> {
+    fn apdu(&self, data: &Vec<u8>) -> Result<Vec<u8>, HWKeyError> {
         let req = ApduRequest {
-            data: hex::encode(&data[8..])
+            data: hex::encode(data)
         };
         debug!("Send: {}", req.data);
         let resp: ApduResponse = self.post("apdu", req)?;
@@ -130,22 +132,44 @@ impl Default for Speculos {
     fn default() -> Self {
         Speculos {
             url: "http://127.0.0.1:5000".to_string(),
-            buf: Vec::new(),
-            frame_seq: 0
+            in_buf: Vec::new(),
+            in_frame_seq: 0,
+            out_buf: Vec::new(),
+            out_len: 0
         }
     }
 }
 
 impl LedgerConnection for Speculos {
     fn write(&mut self, data: &[u8]) -> Result<usize, HWKeyError> {
-        let result = self.apdu(data.to_vec())?;
-        self.buf = result;
-        self.frame_seq = 0;
+        //-----
+        // Buffer all frames to send as a single APDU command
+        //-----
+        if self.out_len == 0 {
+            self.out_len = (data[6] as usize) << 8 | (data[7] as usize);
+            self.out_buf.extend_from_slice(&data[8..]);
+        } else {
+            self.out_buf.extend_from_slice(&data[6..]);
+        }
+        let finalized = self.out_buf.len() >= self.out_len;
+        debug!("APDU Frame processed. Expected: {}. Current frame: {}. Finalized: {}", self.out_len, self.out_buf.len(), finalized);
+        if !finalized {
+            return Ok(0)
+        }
+
+        let result = self.apdu(&self.out_buf)?;
+        self.out_buf.clear();
+        self.out_len = 0;
+        self.in_buf = result;
+        self.in_frame_seq = 0;
         Ok(data.len())
     }
 
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, HWKeyError> {
-        let first_frame = self.frame_seq == 0;
+        //-----
+        // Split APDU response into multiple frames and read one by one from memory
+        //-----
+        let first_frame = self.in_frame_seq == 0;
         let channel = 0x101;
 
         // standard header
@@ -154,13 +178,13 @@ impl LedgerConnection for Speculos {
         buf[2] = 0x05;
 
         // current frame index
-        buf[3] = (self.frame_seq >> 8) as u8;
-        buf[4] = (self.frame_seq & 0xff) as u8;
+        buf[3] = (self.in_frame_seq >> 8) as u8;
+        buf[4] = (self.in_frame_seq & 0xff) as u8;
 
         // when data started prepend it with its size
         if first_frame {
-            buf[5] = (self.buf.len() >> 8) as u8;
-            buf[6] = (self.buf.len() & 0xff) as u8;
+            buf[5] = (self.in_buf.len() >> 8) as u8;
+            buf[6] = (self.in_buf.len() & 0xff) as u8;
         }
 
         let header_size = if first_frame {
@@ -169,20 +193,20 @@ impl LedgerConnection for Speculos {
             5
         };
 
-        let mut size = self.buf.len();
+        let mut size = self.in_buf.len();
         let limit = buf.len() - header_size;
         if size > limit {
             size = limit
         }
 
-        buf[header_size..size+header_size].copy_from_slice(&self.buf[0..size]);
+        buf[header_size..size+header_size].copy_from_slice(&self.in_buf[0..size]);
 
-        if size == self.buf.len() {
-            self.buf.clear();
+        if size == self.in_buf.len() {
+            self.in_buf.clear();
         } else {
-            self.buf = self.buf[size..].to_vec()
+            self.in_buf = self.in_buf[size..].to_vec()
         }
-        self.frame_seq += 1;
+        self.in_frame_seq += 1;
         Ok(size + header_size)
     }
 }

@@ -71,9 +71,10 @@ impl TryFrom<Vec<u8>> for AddressResponse {
             ))
         }
         let address = &value[address_start..address_end];
-        let address = from_utf8(address).map(|a| a.to_string())
-            .map_err(|e| HWKeyError::EncodingError(format!("Can't parse address: {}", e.to_string()))
-        )?;
+        let address = from_utf8(address)
+            .map(|a| a.to_string())
+            .map(|a| if a.starts_with("0x") { a } else { format!("0x{}", a)} )
+            .map_err(|e| HWKeyError::EncodingError(format!("Can't parse address: {}", e.to_string())))?;
 
         let chaincode_len = 32 as usize;
         let chaincode_start = address_end;
@@ -265,7 +266,7 @@ mod tests {
         let parsed = AddressResponse::try_from(resp);
         assert!(parsed.is_ok(), format!("{:?}", parsed));
         let parsed = parsed.unwrap();
-        assert_eq!("5Ad423f5eb4735415c93f0ce52f6e2c13BD6A500".to_string(), parsed.address);
+        assert_eq!("0x5Ad423f5eb4735415c93f0ce52f6e2c13BD6A500".to_string(), parsed.address);
         assert_eq!(
             "04b28217096d8ad3dd25461404c3941a5196ac8f089f1be5bcb62df2ce08a71ba1ca4b879ee38217cced7ef1c9dc5c15cb804ab159503514f73559d1a1192ba1fc",
             hex::encode(parsed.pubkey.serialize_uncompressed().to_vec()));
@@ -277,7 +278,7 @@ mod tests {
         let parsed = AddressResponse::try_from(resp);
         assert!(parsed.is_ok(), format!("{:?}", parsed));
         let parsed = parsed.unwrap();
-        assert_eq!("3d66483b4Cad3518861029Ff86a387eBc4705172".to_string(), parsed.address);
+        assert_eq!("0x3d66483b4Cad3518861029Ff86a387eBc4705172".to_string(), parsed.address);
         assert_eq!(
             "04452ae4b222d10cb80c269d0677f7165c548e49113d91b26848ae01a7732f15ff88379573411237d1a9dfb9603d2f40d7a56bf12b1bf5f6ae3b69d7bfebd45689",
             hex::encode(parsed.pubkey.serialize_uncompressed().to_vec()));

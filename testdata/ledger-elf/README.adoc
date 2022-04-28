@@ -1,0 +1,59 @@
+= Ledger Apps for testing
+
+Set of Ledger Apps compiled from sources that are suitable for testing with Speculos
+
+|===
+| File  | Blockchain | Ledger Version | App Version
+
+| `ethereum-nanos-2.1.0-1.9.18.elf` | Ethereum | Nano S 2.1.0 | 1.9.18
+| `ethereum-nanox-2.0.2-1.9.18.elf` | Ethereum | Nano X 2.0.2 | 1.9.18
+
+|===
+
+== How to build
+
+
+.Prepare App Builder
+----
+git clone https://github.com/LedgerHQ/ledger-app-builder.git
+cd ledger-app-builder
+
+docker build -t ledger-app-builder:latest .
+----
+
+.Get Ethereum App
+----
+git clone https://github.com/LedgerHQ/app-ethereum.git
+cd app-ethereum
+----
+
+.Choose a version
+----
+git checkout nanos_2.1.0_1.9.18
+----
+
+.Build
+----
+docker run --rm -ti -v "$(realpath .):/app" ledger-app-builder:latest
+...
+make
+----
+
+Copy a binary from `bin` to `testdata/ledger-elf`.
+
+== Run on Speculos
+
+----
+export LEDGER_APP_VER=1.9.18
+export LEDGER_TYPE=nanox
+export LEDGER_VER=2.0.2
+
+docker run --rm -it -v $(pwd)/testdata/ledger-elf:/speculos/apps -p 5001:5000 speculos \
+    --display headless --model ${LEDGER_TYPE} \
+    apps/ethereum-${LEDGER_TYPE}-${LEDGER_VER}-${LEDGER_APP_VER}.elf
+----
+
+== NOT A PART OF THE PROJECT
+
+Files in this directory are not part of the Emerald HHkey project and put here only for reference.
+It's not covered by lib's licence, bug bounty or any other arrangement related to the Emerald HWKey library.

@@ -123,8 +123,23 @@ impl LedgerKey {
             .collect()
     }
 
+    #[cfg(not(feature = "speculos"))]
     pub fn have_device(&self) -> bool {
         self.device.is_some()
+    }
+
+    #[cfg(feature = "speculos")]
+    pub fn have_device(&self) -> bool {
+        let conn = self.open();
+        if conn.is_err() {
+            return false
+        }
+        let conn = conn.unwrap();
+        if let Ok(avail) = conn.is_available() {
+            avail
+        } else {
+            false
+        }
     }
 
     /// Update device list

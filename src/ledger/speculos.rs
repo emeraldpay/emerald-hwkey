@@ -53,6 +53,11 @@ struct EventResponse {
     y: usize
 }
 
+#[derive(Deserialize, Clone, Debug)]
+struct EventsListResponse {
+    events: Vec<EventResponse>
+}
+
 pub struct Speculos {
     url: String,
     in_buf: Vec<u8>,
@@ -110,6 +115,67 @@ impl Speculos {
             action: ButtonAction::PressAndRelease
         };
         let _: ButtonResponse = self.post(format!("button/{}", button.name()).as_str(), req)?;
+        Ok(())
+    }
+
+    pub fn delete_events(&self) -> Result<(), HWKeyError> {
+        ureq::delete(
+            format!("{}/events", &self.url).as_str()
+            ).call()
+            .map_err(|e| HWKeyError::CommError(format!("{}", e)))
+            .map(|_| ())
+    }
+
+    pub fn get_events(&self, clear: bool) -> Result<Vec<String>, HWKeyError> {
+        let resp = ureq::get(
+            format!("{}/events", &self.url).as_str()
+            )
+            .call().map_err(|e| HWKeyError::CommError(format!("Failed to make a request: {}", e)))?
+            .into_string().map_err(|_| HWKeyError::CommError("Not a string".to_string()))?;
+        let events: Vec<String> = serde_json::from_str::<EventsListResponse>(resp.as_str()).unwrap()
+            .events.iter()
+            .map(|event| event.text.clone())
+            .collect();
+
+        if clear {
+            let _ = self.delete_events()?;
+        }
+        Ok(events)
+    }
+
+    pub fn press_right_until<F>(&self, limit: usize, check: F) -> Result<(), ()>
+        where F: Fn((String, String)) -> bool {
+        let mut found = false;
+        let mut tries = 0;
+        while !found && tries < limit {
+            tries += 1;
+            let current = self.get_events(true).map_err(|_| ())?;
+            let pair = if current.len() > 1 {
+                (current[current.len()-2].clone(), current[current.len()-1].clone())
+            } else if current.len() == 1 {
+                (current[current.len()-1].clone(), "".to_string())
+            } else {
+                ("".to_string(), "".to_string())
+            };
+            if check(pair) {
+                return Ok(())
+            }
+            let _ = self.press(Button::Right).map_err(|_| ())?;
+        }
+        Err(())
+    }
+
+    pub fn accept_on_screen(&self) -> Result<(), HWKeyError> {
+        let _ = self.press_right_until(10, |e| e.0.eq("Accept"))
+            .map_err(|_| HWKeyError::CommError("Accept button not found".to_string()))?;
+        let _ = self.press(Button::Both)?;
+        Ok(())
+    }
+
+    pub fn reject_on_screen(&self) -> Result<(), HWKeyError> {
+        let _ = self.press_right_until(10, |e| e.0.eq("Reject"))
+            .map_err(|_| HWKeyError::CommError("Reject button not found".to_string()))?;
+        let _ = self.press(Button::Both)?;
         Ok(())
     }
 

@@ -132,11 +132,13 @@ pub trait LedgerConnection {
 #[cfg(not(feature = "speculos"))]
 impl LedgerConnection for HidDevice {
     fn write(&mut self, data: &[u8]) -> Result<usize, HWKeyError> {
-        self.write(data).map_err(|e| HWKeyError::CommError(format!("{}", e)))
+        HidDevice::write(self, data)
+            .map_err(|e| HWKeyError::CommError(format!("{}", e)))
     }
 
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, HWKeyError> {
-        self.read(buf).map_err(|e| HWKeyError::CommError(format!("{}", e)))
+        HidDevice::read(self, buf)
+            .map_err(|e| HWKeyError::CommError(format!("{}", e)))
     }
 }
 

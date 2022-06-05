@@ -14,11 +14,12 @@ name = "emerald_hwkey"
 path = "src/lib.rs"
 
 [features]
+default = []
 # Uses Ledger Speculos app emulator instead of real hardware
 speculos=["dep:ureq", "dep:serde", "dep:serde_json", "dep:serde_derive"]
 
 [dependencies]
-hidapi = "1.3.2"
+hidapi = "1.4.1"
 hdpath = ">= 0.6"
 hex = "0.4.2"
 log = "0.4.11"

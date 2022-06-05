@@ -48,10 +48,6 @@ struct TestTx {
     pub signature: String,
 }
 
-fn hex_address(a: AddressResponse) -> String {
-    format!("0x{:}", a.address)
-}
-
 fn read_test_addresses() -> Vec<TestAddress> {
     let json = fs::read_to_string("./testdata/ledger/address.json")
         .expect("./testdata/ledger/address.json is not available");
@@ -76,9 +72,8 @@ pub fn get_ethereum_address() {
     let addresses = read_test_addresses();
     for address in addresses {
         let hdpath = StandardHDPath::try_from(address.hdpath.as_str()).expect("Invalid HDPath");
-        let act = app.get_address(&hdpath, false)
-            .map(hex_address).unwrap();
-        assert_eq!(act.to_string(), address.address);
+        let act = app.get_address(&hdpath, false).unwrap();
+        assert_eq!(act.address, address.address);
     }
 }
 

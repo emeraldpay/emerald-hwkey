@@ -9,6 +9,7 @@ use emerald_hwkey::{
     ledger::app_bitcoin::{BitcoinApp, GetAddressOpts, AddressType, UnsignedInput, SignTx, BitcoinApps},
 };
 use bitcoin::{
+    PublicKey,
     Address,
     Network,
     Transaction,
@@ -282,10 +283,10 @@ pub fn address_within_xpub() {
     for change in &[0u32, 1] {
         for index in &[0u32, 1, 2, 5, 7, 10, 16, 64, 100, 150, 500, 1000, 15861, 71591, 619691] {
             let address_exp = Address::p2wpkh(
-                &xpub.derive_pub(&secp, &vec![
+                &PublicKey::new(xpub.derive_pub(&secp, &vec![
                     ChildNumber::from_normal_idx(*change).unwrap(),
                     ChildNumber::from_normal_idx(*index).unwrap()
-                ]).unwrap().public_key,
+                ]).unwrap().public_key),
                 Network::Bitcoin,
             ).unwrap();
             let address_act = app.get_address(

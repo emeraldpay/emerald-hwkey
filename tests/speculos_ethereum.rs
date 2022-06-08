@@ -6,6 +6,7 @@ use log::LevelFilter;
 use simple_logger::SimpleLogger;
 use emerald_hwkey::ledger::app_ethereum::EthereumApp;
 use emerald_hwkey::ledger::manager::LedgerKey;
+#[cfg(feature = "speculos")]
 use emerald_hwkey::ledger::speculos::{Button, Speculos};
 
 #[test]

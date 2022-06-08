@@ -20,6 +20,7 @@ use bitcoin::{
     consensus::{serialize},
     blockdata::{
         script::Builder,
+        witness::Witness,
         opcodes
     },
     util::psbt::serialize::Serialize
@@ -66,7 +67,7 @@ pub struct AddressResponse {
 
 impl AsPubkey for AddressResponse {
     fn as_pubkey(&self) -> &bitcoin::secp256k1::PublicKey {
-        &self.pubkey.key
+        &self.pubkey.inner
     }
 }
 
@@ -139,10 +140,7 @@ impl TryFrom<(Vec<u8>, GetAddressOpts)> for AddressResponse {
         let pubkey = &value[1..pubkey_len+1];
         let pubkey = PublicKey::from_slice(pubkey)
             .map_err(|_| HWKeyError::CryptoError("Invalid public key".to_string()))?;
-        let pubkey_comp = PublicKey{
-            compressed: true,
-            key: as_compact(&pubkey.key)?
-        };
+        let pubkey_comp = PublicKey::new(as_compact(&pubkey.inner)?);
 
         let address_len = value[pubkey_len + 1] as usize;
         let address_start = 1 + pubkey_len + 1;
@@ -162,6 +160,7 @@ impl TryFrom<(Vec<u8>, GetAddressOpts)> for AddressResponse {
                     .push_slice(hash160(pubkey_comp.serialize().as_slice()).as_slice())
                     .into_script();
                 Address::p2sh(&script, opts.network)
+                    .map_err(|_| HWKeyError::CryptoError("Invalid Pubkey".to_string()))?
             },
             AddressType::Legacy => Address::p2pkh(&pubkey_comp, opts.network)
         };
@@ -244,7 +243,7 @@ impl BitcoinApp<'_> {
     }
 
     fn witness_redeem(pubkey: &PublicKey, network: Network) -> Script {
-        let address = Address::p2wpkh(&PublicKey::from_slice(&pubkey.key.serialize()).unwrap(), network).unwrap();
+        let address = Address::p2wpkh(&PublicKey::from_slice(&pubkey.inner.serialize()).unwrap(), network).unwrap();
         let base = address.script_pubkey();
 
         Builder::new()
@@ -296,9 +295,9 @@ impl BitcoinApp<'_> {
             let mut signature = self.untrusted_hash_sign(&mut device, input, tx.lock_time)?;
             // Signed hash, as ASN-1 encoded R & S components. Mask first byte with 0xFE
             signature[0] = signature[0] & 0xfe;
-            tx.input[i].witness = vec![
+            tx.input[i].witness = Witness::from_vec(vec![
                 signature.clone(), input.from_address.pubkey.serialize().to_vec()
-            ];
+            ]);
             signatures.push(signature);
         }
 

@@ -45,7 +45,7 @@ pub trait PubkeyAddressApp {
         let result = ExtendedPubKey {
             network,
             depth: hd_path.len(),
-            public_key: bitcoin::PublicKey { key: pubkey.as_pubkey().clone(), compressed: true },
+            public_key: bitcoin::secp256k1::PublicKey::from(pubkey.as_pubkey().clone()),
             chain_code: pubkey.as_chaincode().clone(),
             child_number: match index {
                 PathValue::Hardened(i) => ChildNumber::from_hardened_idx(i).unwrap(),

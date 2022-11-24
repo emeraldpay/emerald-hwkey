@@ -8,17 +8,7 @@ use emerald_hwkey::{
     ledger::manager::LedgerKey,
     ledger::app_bitcoin::{BitcoinApp, GetAddressOpts, AddressType, UnsignedInput, SignTx, BitcoinApps},
 };
-use bitcoin::{
-    PublicKey,
-    Address,
-    Network,
-    Transaction,
-    TxIn,
-    TxOut,
-    OutPoint,
-    Txid,
-    util::psbt::serialize::Serialize,
-};
+use bitcoin::{PublicKey, Address, Network, Transaction, TxIn, TxOut, OutPoint, Txid, util::psbt::serialize::Serialize, PackedLockTime};
 use std::str::FromStr;
 use hdpath::{StandardHDPath, AccountHDPath};
 use std::convert::TryFrom;
@@ -26,7 +16,7 @@ use log::LevelFilter;
 use simple_logger::SimpleLogger;
 use bitcoin::util::psbt::serialize::Deserialize;
 use bitcoin::util::bip32::{ExtendedPubKey, Fingerprint, ChildNumber};
-use secp256k1::Secp256k1;
+use bitcoin::secp256k1::Secp256k1;
 use std::thread;
 use emerald_hwkey::ledger::traits::{PubkeyAddressApp, LedgerApp};
 
@@ -318,11 +308,11 @@ pub fn sign_bitcoin_tx_1() {
 
     let mut tx = Transaction {
         version: 2,
-        lock_time: 0,
+        lock_time: bitcoin::PackedLockTime(0),
         input: vec![
             TxIn {
                 previous_output: OutPoint::new(Txid::from_str("41217d32e29b67d01692eed0ca776ea24a9f03299dfc46dde1bf14d3918e5275").unwrap(), 0),
-                sequence: 0xfffffffd,
+                sequence: bitcoin::Sequence(0xfffffffd),
                 ..TxIn::default()
             }
         ],
@@ -350,7 +340,7 @@ pub fn sign_bitcoin_tx_1() {
         ],
         network: Network::Testnet,
     });
-    assert!(signed.is_ok(), format!("Not ok {:?}", signed));
+    assert!(signed.is_ok(), "Not ok {:?}", signed);
     println!("Signed: {}", hex::encode(tx.serialize()));
 
     assert_eq!(
@@ -400,21 +390,21 @@ pub fn sign_bitcoin_tx_2() {
 
     let mut tx = Transaction {
         version: 2,
-        lock_time: 0,
+        lock_time: PackedLockTime(0),
         input: vec![
             TxIn {
                 previous_output: OutPoint::new(Txid::from_str("aa622e3b4822e4a4339d9491c5b9b55716ee30ff9d9a1654f393889dbd8f45aa").unwrap(), 1),
-                sequence: 0xfffffffd,
+                sequence: bitcoin::Sequence(0xfffffffd),
                 ..TxIn::default()
             },
             TxIn {
                 previous_output: OutPoint::new(Txid::from_str("64e0a9a5b16b97af23f7e20da888ba7b8944ef338259e53f0dfb40714f8391b3").unwrap(), 0),
-                sequence: 0xfffffffd,
+                sequence: bitcoin::Sequence(0xfffffffd),
                 ..TxIn::default()
             },
             TxIn {
                 previous_output: OutPoint::new(Txid::from_str("1d868fe284c925ac4b1280c12ba9ffd11cca3d45dd1fac3d0756cd72903fdb34").unwrap(), 1),
-                sequence: 0xfffffffd,
+                sequence: bitcoin::Sequence(0xfffffffd),
                 ..TxIn::default()
             }
         ],
@@ -455,7 +445,7 @@ pub fn sign_bitcoin_tx_2() {
     manager.connect().expect("Not connected");
     let app = BitcoinApp::new(&manager);
     let signed = app.sign_tx(&mut tx, &sign_with);
-    assert!(signed.is_ok(), format!("Not ok {:?}", signed));
+    assert!(signed.is_ok(), "Not ok {:?}", signed);
     println!("Signed: {}", hex::encode(tx.serialize()));
 
     assert_eq!(

@@ -15,7 +15,7 @@ use bitcoin::{
     Network,
     VarInt,
     PublicKey,
-    SigHashType,
+    EcdsaSighashType,
     TxIn,
     consensus::{serialize},
     blockdata::{
@@ -26,10 +26,9 @@ use bitcoin::{
     util::psbt::serialize::Serialize
 };
 use byteorder::{WriteBytesExt, LittleEndian};
-use hidapi::HidDevice;
 use hdpath::{StandardHDPath, HDPath};
 use sha2::{Sha256, Digest};
-use ripemd160::Ripemd160;
+use ripemd::Ripemd160;
 use bitcoin::util::bip32::{ChainCode};
 use crate::ledger::comm::LedgerConnection;
 use crate::ledger::commons::as_compact;
@@ -384,7 +383,7 @@ impl BitcoinApp<'_> {
         data.push(0x00); // RFU (0x00)
         data.write_u32::<LittleEndian>(locktime) //locktime
             .map_err(|_| HWKeyError::EncodingError("Failed to encode locktime".to_string()))?;
-        data.push(SigHashType::All as u8); //SigHashType
+        data.push(EcdsaSighashType::All as u8); //SigHashType
         let apdu = ApduBuilder::new(COMMAND_UNTRUSTED_HASH_SIGN)
             .with_p1(0x00)
             .with_p2(0x00)
@@ -521,7 +520,7 @@ impl LedgerApp for BitcoinApp<'_> {
 
 #[cfg(test)]
 mod tests {
-    use crate::ledger::app_bitcoin::{AddressResponse, GetAddressOpts, AppVersion, BitcoinApp};
+    use crate::ledger::app_bitcoin::{AddressResponse, GetAddressOpts, AppVersion};
     use std::convert::TryFrom;
     use bitcoin::util::psbt::serialize::Serialize;
     use bitcoin::Address;

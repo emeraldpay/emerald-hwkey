@@ -264,7 +264,7 @@ mod tests {
     fn decode_std_address() {
         let resp = hex::decode("4104b28217096d8ad3dd25461404c3941a5196ac8f089f1be5bcb62df2ce08a71ba1ca4b879ee38217cced7ef1c9dc5c15cb804ab159503514f73559d1a1192ba1fc28354164343233663565623437333534313563393366306365353266366532633133424436413530309000000000000035140000000000000000000000000000000000000000000000000000000000000000").unwrap();
         let parsed = AddressResponse::try_from(resp);
-        assert!(parsed.is_ok(), format!("{:?}", parsed));
+        assert!(parsed.is_ok(), "{:?}", parsed);
         let parsed = parsed.unwrap();
         assert_eq!("0x5Ad423f5eb4735415c93f0ce52f6e2c13BD6A500".to_string(), parsed.address);
         assert_eq!(
@@ -276,7 +276,7 @@ mod tests {
     fn decode_std_address_2() {
         let resp = hex::decode("4104452ae4b222d10cb80c269d0677f7165c548e49113d91b26848ae01a7732f15ff88379573411237d1a9dfb9603d2f40d7a56bf12b1bf5f6ae3b69d7bfebd45689283364363634383362344361643335313838363130323946663836613338376542633437303531373290000000000000f5f60000000000000000000000000000000000000000000000000000000000000000").unwrap();
         let parsed = AddressResponse::try_from(resp);
-        assert!(parsed.is_ok(), format!("{:?}", parsed));
+        assert!(parsed.is_ok(), "{:?}", parsed);
         let parsed = parsed.unwrap();
         assert_eq!("0x3d66483b4Cad3518861029Ff86a387eBc4705172".to_string(), parsed.address);
         assert_eq!(

@@ -112,7 +112,8 @@ pub fn sw_to_error(sw_h: u8, sw_l: u8) -> Result<(), HWKeyError> {
         SW_NO_ERROR => Ok(()),
         SW_WRONG_LENGTH => Err(HWKeyError::CommError("Incorrect length".to_string())),
         SW_WRONG_DATA => Err(HWKeyError::CommError("Invalid data".to_string())),
-        SW_INCORRECT_PARAMETERS => Err(HWKeyError::CommError("Incorrect parameters".to_string())),
+        SW_INCONSISTENT_PS => Err(HWKeyError::CommError("Inconsistent parameters".to_string())),
+        SW_WRONG_PS => Err(HWKeyError::CommError("Wrong parameters".to_string())),
         SW_USER_CANCEL => Err(HWKeyError::CommError("Canceled by user".to_string())),
         SW_CONDITIONS_NOT_SATISFIED => {
             Err(HWKeyError::CommError("Conditions not satisfied()".to_string()))

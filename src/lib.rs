@@ -1,7 +1,7 @@
 #[macro_use] extern crate log;
 extern crate bitcoin;
 extern crate sha2;
-extern crate ripemd160;
+extern crate ripemd;
 #[cfg(feature = "speculos")]
 extern crate serde;
 #[cfg(feature = "speculos")] #[macro_use]

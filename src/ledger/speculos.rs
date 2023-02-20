@@ -275,4 +275,9 @@ impl LedgerConnection for Speculos {
         self.in_frame_seq += 1;
         Ok(size + header_size)
     }
+
+    fn read_timeout(&mut self, buf: &mut [u8], timeout_ms: i32) -> Result<usize, HWKeyError> {
+        self.read(buf)
+    }
+
 }

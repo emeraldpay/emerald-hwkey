@@ -19,7 +19,8 @@ limitations under the License.
 //!
 use crate::{
     ledger::{
-        comm::ping,
+        apdu::APDU,
+        comm::ping, comm::sendrecv_timeout
     },
     errors::HWKeyError,
 };
@@ -30,6 +31,7 @@ use std::{
     sync::{Arc, Mutex}
 };
 use std::ops::Deref;
+use std::convert::TryFrom;
 
 pub const CHUNK_SIZE: usize = 255;
 
@@ -60,6 +62,23 @@ struct Device {
     address: String,
     ///
     hid_info: DeviceInfo,
+}
+
+#[derive(Clone, Debug)]
+pub struct AppDetails {
+    pub name: String,
+    pub version: String,
+    pub flags: String,
+}
+
+impl Default for AppDetails {
+    fn default() -> Self {
+        AppDetails {
+            name: "".to_string(),
+            version: "".to_string(),
+            flags: "".to_string(),
+        }
+    }
 }
 
 impl PartialEq for Device {
@@ -152,7 +171,7 @@ impl LedgerKey {
             .map_err(|_| HWKeyError::CommError("Failed to refresh".to_string()))?;
 
         let current = hid.device_list().find(|hid_info| {
-            debug!("device {:?}", hid_info);
+            trace!("device {:?}", hid_info);
             hid_info.vendor_id() == LEDGER_VID
                 && (hid_info.product_id() == LEDGER_S_PID_1
                 || hid_info.product_id() == LEDGER_S_PID_2
@@ -189,41 +208,213 @@ impl LedgerKey {
 
     #[cfg(not(feature = "speculos"))]
     pub fn open(&self) -> Result<HidDevice, HWKeyError> {
-        if self.device.is_none() {
-            return Err(HWKeyError::Unavailable);
-        }
-        let target = self.device.as_ref().unwrap();
-        // up to 10 tries, starting from 50ms increasing by 25ms, in total 19250ms max
-        let mut retry_delay = 50;
-        for _ in 0..11 {
-            //
-            //serial number is always 0001
-            if let Ok(mut h) = self
-                .hid.lock().unwrap()
-                .open(target.hid_info.vendor_id(), target.hid_info.product_id())
-            {
-                match ping(&mut h) {
-                    Ok(v) => {
-                        if v {
-                            return Ok(h);
+        match &self.device {
+            None => Err(HWKeyError::Unavailable),
+            Some(target) => {
+                // up to 10 tries, starting from 50ms increasing by 25ms, in total 19250ms max
+                let mut retry_delay = 50;
+                for _ in 0..11 {
+                    //
+                    //serial number is always 0001
+                    if let Ok(mut h) = self
+                        .hid.lock().unwrap()
+                        .open(target.hid_info.vendor_id(), target.hid_info.product_id())
+                    {
+                        match ping(&mut h) {
+                            Ok(v) => {
+                                if v {
+                                    return Ok(h);
+                                }
+                            }
+                            Err(_) => {}
                         }
                     }
-                    Err(_) => {}
+                    thread::sleep(time::Duration::from_millis(retry_delay));
+                    retry_delay += 25;
                 }
+                // used by another application
+                Err(HWKeyError::CommError(format!(
+                    "Device is locked by another application: {:?}",
+                    target.hid_info
+                )))
             }
-            thread::sleep(time::Duration::from_millis(retry_delay));
-            retry_delay += 25;
         }
-
-        // used by another application
-        Err(HWKeyError::CommError(format!(
-            "Device is locked by another application: {:?}",
-            target.hid_info
-        )))
     }
 
     #[cfg(feature = "speculos")]
     pub fn open(&self) -> Result<crate::ledger::speculos::Speculos, HWKeyError> {
         Ok(crate::ledger::speculos::Speculos::create_env())
+    }
+
+    ///
+    /// Get information about the currently running app on Ledger
+    /// If no app is running it produces the same info from the OS.
+    pub fn get_app_details(&self) -> Result<AppDetails, HWKeyError> {
+        let apdu = APDU {
+            cla: 0xb0,
+            ins: 0x01,
+            ..APDU::default()
+        };
+        let mut device = self.open()?;
+        match sendrecv_timeout(&mut device, &apdu, 100) {
+            Err(e) => match e {
+                HWKeyError::EmptyResponse => Ok(AppDetails::default()),
+                _ => Err(e),
+            }
+            Ok(resp) => AppDetails::try_from(resp)
+        }
+    }
+
+}
+
+fn read_string(pos: usize, buf: &Vec<u8>) -> Result<(String, usize), HWKeyError> {
+    if buf.len() <= pos {
+        return Ok(("".to_string(), pos));
+    }
+    let len = buf[pos] as usize;
+
+    // in general the 0x90 must be cut because of the data length in the frame, but sometimes it produces the whole response
+    if len == 0 || len == 0x90 {
+        return Ok(("".to_string(), pos + 1));
+    }
+    if len + pos + 1 > buf.len() {
+        return Err(HWKeyError::EncodingError(format!("Cannot read {} at {} from {}", len, pos + 1, buf.len())));
+    }
+    let codes = &buf[pos+1..pos+1+len];
+
+    // Some apps (BOLOS for example) has a bug that produces the zero-terminator into the output so we just cut it off here
+    let codes = if let Some(nul_pos) = codes.into_iter().position(|c| *c == 0u8) {
+        &codes[0..nul_pos]
+    } else {
+        &codes
+    };
+
+    let s = String::from_utf8(codes.to_vec())
+        .map_err(|_| HWKeyError::EncodingError(format!("Not a string at {}..{}", pos + 1, pos + 1 + len)))?;
+    Ok((s, pos + 1 + len))
+}
+
+impl TryFrom<Vec<u8>> for AppDetails {
+    type Error = HWKeyError;
+
+    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        let is_ok = value[0] == 0x01;
+        if !is_ok {
+            return Err(HWKeyError::EncodingError("No App Version provided".to_string()));
+        }
+        let name = read_string(1, &value)?;
+        let version = read_string(name.1, &value)?;
+        let flags = read_string(version.1, &value)?;
+        Ok(
+            AppDetails {
+                name: name.0,
+                version: version.0,
+                flags: flags.0,
+            }
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::ledger::{
+        manager::{LedgerKey, AppDetails},
+        apdu::{ApduBuilder, APDU},
+        comm::{sendrecv}
+    };
+    use core::convert::TryFrom;
+    use log::Level;
+
+    #[test]
+    pub fn parse_ethereum_version() {
+        let raw = hex::decode("0108457468657265756d06312e322e3133").unwrap();
+        let act = AppDetails::try_from(raw);
+        assert!(act.is_ok());
+        let act = act.unwrap();
+        assert_eq!(act.name, "Ethereum");
+        assert_eq!(act.version, "1.2.13");
+        assert_eq!(act.flags, "");
+    }
+
+    #[test]
+    pub fn parse_ethereum_classic_version() {
+        let raw = hex::decode("0110457468657265756d20436c617373696306312e322e3133").unwrap();
+        let act = AppDetails::try_from(raw);
+        assert!(act.is_ok());
+        let act = act.unwrap();
+        assert_eq!(act.name, "Ethereum Classic");
+        assert_eq!(act.version, "1.2.13");
+        assert_eq!(act.flags, "");
+    }
+
+    #[test]
+    pub fn parse_bitcoin_version() {
+        let raw = hex::decode("0107426974636f696e05312e342e37").unwrap();
+        let act = AppDetails::try_from(raw);
+        assert!(act.is_ok());
+        let act = act.unwrap();
+        assert_eq!(act.name, "Bitcoin");
+        assert_eq!(act.version, "1.4.7");
+        assert_eq!(act.flags, "");
+    }
+
+    #[test]
+    pub fn parse_bitcoin_testnet_version() {
+        let raw = hex::decode("010c426974636f696e205465737405312e342e37").unwrap();
+        let act = AppDetails::try_from(raw);
+        assert!(act.is_ok());
+        let act = act.unwrap();
+        assert_eq!(act.name, "Bitcoin Test");
+        assert_eq!(act.version, "1.4.7");
+        assert_eq!(act.flags, "");
+    }
+
+    #[test]
+    pub fn parse_no_app_version_broken() {
+        let raw = hex::decode("01054f4c4f5300072e322e342d3100").unwrap();
+        let act = AppDetails::try_from(raw);
+        assert!(act.is_ok());
+        let act = act.unwrap();
+        // for a some reason the ledger wiht BOLOS 1.2.4-1 produces a corrupted response.
+        // so that's ok here to verify with such a weird expected values
+        assert_eq!(act.name, "OLOS");
+        assert_eq!(act.version, ".2.4-1");
+        assert_eq!(act.flags, "");
+    }
+
+    #[test]
+    pub fn parse_no_app_whole_frame() {
+        let raw = hex::decode("01054f4c4f5300072e322e342d3100900000000000000000000000000000000000000000000000000000000000000000000000000000000000").unwrap();
+        let act = AppDetails::try_from(raw);
+        assert!(act.is_ok());
+        let act = act.unwrap();
+        assert_eq!(act.name, "OLOS");
+        assert_eq!(act.version, ".2.4-1");
+        assert_eq!(act.flags, "");
+    }
+
+    #[test]
+    #[cfg(integration_test)]
+    /// Just for testing the responses from an actual device
+    pub fn check_version() {
+        simple_logger::init_with_level(Level::Trace).unwrap();
+        let mut manager = LedgerKey::new_connected().unwrap();
+        let apdu = APDU {
+            cla: 0xb0,
+            ins: 0x01,
+            ..APDU::default()
+        };
+        let mut device = manager.open().expect("Cannot open");
+
+        let resp = sendrecv(&mut device, &apdu).unwrap();
+        println!("resp app version: {:}", hex::encode(resp));
+
+        let apdu = APDU {
+            cla: 0xe0,
+            ins: 0x01,
+            ..APDU::default()
+        };
+        let resp = sendrecv(&mut device, &apdu).unwrap();
+        println!("resp hw version: {:}", hex::encode(resp));
     }
 }

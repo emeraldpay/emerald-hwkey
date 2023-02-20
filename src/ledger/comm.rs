@@ -128,6 +128,7 @@ pub fn sw_to_error(sw_h: u8, sw_l: u8) -> Result<(), HWKeyError> {
 pub trait LedgerConnection {
     fn write(&mut self, data: &[u8]) -> Result<usize, HWKeyError>;
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, HWKeyError>;
+    fn read_timeout(&mut self, buf: &mut [u8], timeout_ms: i32) -> Result<usize, HWKeyError>;
 }
 
 #[cfg(not(feature = "speculos"))]
@@ -139,6 +140,11 @@ impl LedgerConnection for HidDevice {
 
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, HWKeyError> {
         HidDevice::read(self, buf)
+            .map_err(|e| HWKeyError::CommError(format!("{}", e)))
+    }
+
+    fn read_timeout(&mut self, buf: &mut [u8], timeout_ms: i32) -> Result<usize, HWKeyError> {
+        HidDevice::read_timeout(self, buf, timeout_ms)
             .map_err(|e| HWKeyError::CommError(format!("{}", e)))
     }
 }
@@ -177,7 +183,7 @@ pub fn send(dev: &mut dyn LedgerConnection, apdu: &APDU) -> Result<(), HWKeyErro
     Ok(())
 }
 
-pub fn recv_direct(dev: &mut dyn LedgerConnection) -> Result<Vec<u8>, HWKeyError> {
+pub fn recv_direct(dev: &mut dyn LedgerConnection, timeout: i32) -> Result<Vec<u8>, HWKeyError> {
     let mut frame_index: usize = 0;
     let channel = 0x101;
 
@@ -186,7 +192,10 @@ pub fn recv_direct(dev: &mut dyn LedgerConnection) -> Result<Vec<u8>, HWKeyError
     let datalen: usize;
     let mut recvlen: usize = 0;
     let mut frame: [u8; HID_RPT_SIZE] = [0u8; HID_RPT_SIZE];
-    let frame_size = dev.read(&mut frame)?;
+    let frame_size = dev.read_timeout(&mut frame, timeout)?;
+    if frame_size == 0 {
+        return Err(HWKeyError::EmptyResponse)
+    }
     check_recv_frame(&frame, channel, frame_index)?;
     datalen = (frame[5] as usize) << 8 | (frame[6] as usize);
     data.extend_from_slice(&frame[7..frame_size]);
@@ -205,7 +214,11 @@ pub fn recv_direct(dev: &mut dyn LedgerConnection) -> Result<Vec<u8>, HWKeyError
 
     while recvlen < datalen {
         frame = [0u8; HID_RPT_SIZE];
-        let frame_size = dev.read(&mut frame)?;
+        let frame_size = dev.read_timeout(&mut frame, timeout)?;
+
+        if frame_size == 0 {
+            return Err(HWKeyError::EmptyResponse)
+        }
 
         check_recv_frame(&frame, channel, frame_index)?;
         data.extend_from_slice(&frame[5..frame_size]);
@@ -222,8 +235,8 @@ pub fn recv_direct(dev: &mut dyn LedgerConnection) -> Result<Vec<u8>, HWKeyError
     Ok(data)
 }
 
-pub fn recv(dev: &mut dyn LedgerConnection) -> Result<Vec<u8>, HWKeyError> {
-    let mut data = recv_direct(dev)?;
+pub fn recv(dev: &mut dyn LedgerConnection, timeout: i32) -> Result<Vec<u8>, HWKeyError> {
+    let mut data = recv_direct(dev, timeout)?;
     match sw_to_error(data.pop().unwrap(), data.pop().unwrap()) {
         Ok(_) => Ok(data),
         Err(e) => Err(e),
@@ -233,7 +246,12 @@ pub fn recv(dev: &mut dyn LedgerConnection) -> Result<Vec<u8>, HWKeyError> {
 ///
 pub fn sendrecv(dev: &mut dyn LedgerConnection, apdu: &APDU) -> Result<Vec<u8>, HWKeyError> {
     send(dev, apdu)?;
-    recv(dev)
+    recv(dev, -1)
+}
+
+pub fn sendrecv_timeout(dev: &mut dyn LedgerConnection, apdu: &APDU, timeout: i32) -> Result<Vec<u8>, HWKeyError> {
+    send(dev, apdu)?;
+    recv(dev, timeout)
 }
 
 /// Ping Ledger device, returns `Ok(true)` if available. `Ok(false)` is unavailable (i.e., ping
@@ -243,7 +261,7 @@ pub fn ping(dev: &mut dyn LedgerConnection) -> Result<bool, HWKeyError> {
     let channel: u16 = 0x101;
     frame[1] = (channel >> 8) as u8;
     frame[2] = (channel & 0xff) as u8;
-    frame[3] = 2;
+    frame[3] = 0x02;
     if log_enabled!(log::Level::Trace) {
         let parts: Vec<String> = frame.iter().map(|byte| format!("{:02x}", byte)).collect();
         trace!(">> PING USB send: {}", parts.join(""));

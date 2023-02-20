@@ -4,6 +4,9 @@ use std::{io, fmt, error};
 pub enum HWKeyError {
     /// Device is unavailable
     Unavailable,
+
+    /// Received an empty frame. Usually means a timeout.
+    EmptyResponse,
     /// An unsupported cipher
     CryptoError(String),
     /// Error from HID communication
@@ -38,6 +41,7 @@ impl fmt::Display for HWKeyError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             HWKeyError::Unavailable => write!(f, "HWKey Unavailable"),
+            HWKeyError::EmptyResponse => write!(f, "HWKey no answer"),
             HWKeyError::CryptoError(ref str) => write!(f, "HWKey error: {}", str),
             HWKeyError::CommError(ref str) => write!(f, "Communication protocol error: {}", str),
             HWKeyError::EncodingError(ref str) => write!(f, "Encoding error: {}", str),

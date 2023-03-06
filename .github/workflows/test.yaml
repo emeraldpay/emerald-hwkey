@@ -28,8 +28,8 @@ jobs:
           toolchain: stable
           override: true
 
-      - name: Instal system libs
-        run: sudo apt-get install libusb-1.0-0-dev
+      - name: Install system libs
+        run: sudo apt-get install libusb-1.0-0-dev libudev-dev
         if: runner.os == 'Linux'
 
       - name: Build
@@ -61,7 +61,7 @@ jobs:
           toolchain: nightly
           override: true
 
-      - name: Instal system libs
+      - name: Install system libs
         run: sudo apt-get install libusb-1.0-0-dev
         if: runner.os == 'Linux'
 

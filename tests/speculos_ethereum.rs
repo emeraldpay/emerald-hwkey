@@ -1,3 +1,6 @@
+#![allow(unused_imports)]
+#![allow(dead_code)]
+
 use std::convert::TryFrom;
 use std::sync::mpsc;
 use std::thread::spawn;
@@ -14,7 +17,7 @@ use emerald_hwkey::ledger::speculos::{Button, Speculos};
 pub fn get_address() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
-    let app = EthereumApp::new(&manager);
+    let app = manager.access::<EthereumApp>().unwrap();
 
     let hdpath = StandardHDPath::try_from("m/44'/60'/0'/0/0").expect("Invalid HDPath");
     let act = app.get_address(&hdpath, false).expect("Failed to get address");
@@ -38,7 +41,7 @@ pub fn sign_tx() {
     let speculos = Speculos::create_env();
 
     spawn(move || {
-        let app = EthereumApp::new(&manager);
+        let app = manager.access::<EthereumApp>().unwrap();
         let hdpath = StandardHDPath::try_from("m/44'/60'/0'/0/1").expect("Invalid HDPath");
         let tx: Vec<u8> = hex::decode("ec038504a817c8008252089478296f1058dd49c5d6500855f59094f0a2876397880de0b6b3a764000080018080").unwrap();
         let signed = app.sign_transaction(tx.as_slice(), &hdpath);
@@ -66,7 +69,7 @@ pub fn sign_tx_eip1559() {
     let speculos = Speculos::create_env();
 
     spawn(move || {
-        let app = EthereumApp::new(&manager);
+        let app = manager.access::<EthereumApp>().unwrap();
         let hdpath = StandardHDPath::try_from("m/44'/60'/0'/0/1").expect("Invalid HDPath");
         let tx: Vec<u8> = hex::decode("02f00103843b9aca008504a817c8008252089478296f1058dd49c5d6500855f59094f0a2876397880de0b6b3a764000080c0").unwrap();
         let signed = app.sign_transaction(tx.as_slice(), &hdpath);

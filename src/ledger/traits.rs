@@ -4,6 +4,8 @@ use hdpath::{HDPath, CustomHDPath, PathValue};
 use bitcoin::util::bip32::{ExtendedPubKey, Fingerprint, ChildNumber, ChainCode};
 use crate::ledger::app_bitcoin::hash160;
 use bitcoin::Network;
+use crate::ledger::comm::LedgerConnection;
+use std::sync::{Arc, Mutex};
 
 pub trait AsPubkey {
     fn as_pubkey(&self) -> &PublicKey;
@@ -58,7 +60,17 @@ pub trait PubkeyAddressApp {
 }
 
 pub trait LedgerApp {
-    type Category;
+    type Networks;
 
-    fn is_open(&self) -> Option<Self::Category>;
+    ///
+    /// Try to access a particular App on the Ledger.
+    /// Note that it's not guarantied that the app is actually launched, and it's even dangerous to try to use
+    /// commands specific for an app if it's not launched. Because same command may lead to different results with different apps
+    /// and sometimes Ledger may stuck (ex. waiting for some action that would never produced).
+    fn new(manager: Arc<Mutex<dyn LedgerConnection>>) -> Self;
+
+    ///
+    /// Get actual blockchain version available with the app.
+    /// An app may have a general type (ex. Bitcoin), but may provide access to different networks (Bitcoin Mainnet or Bitcoin Testnet)
+    fn is_open(&self) -> Option<Self::Networks>;
 }

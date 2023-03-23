@@ -1,8 +1,9 @@
 use crate::errors::HWKeyError;
 use crate::ledger::apdu::ApduBuilder;
 use std::str::from_utf8;
-use crate::ledger::comm::sendrecv;
-use crate::ledger::manager::{LedgerKey, CHUNK_SIZE};
+use std::sync::{Arc, Mutex};
+use crate::ledger::comm::{sendrecv, LedgerConnection};
+use crate::ledger::manager::{CHUNK_SIZE};
 use std::convert::TryFrom;
 use hdpath::{HDPath, AccountHDPath, Purpose};
 use bitcoin::secp256k1::PublicKey;
@@ -19,8 +20,8 @@ const COMMAND_APP_CONFIG: u8 = 0x06;
 
 pub type SignatureBytes = [u8; ECDSA_SIGNATURE_BYTES];
 
-pub struct EthereumApp<'a> {
-    ledger: &'a LedgerKey
+pub struct EthereumApp {
+    ledger: Arc<Mutex<dyn LedgerConnection>>
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -122,13 +123,7 @@ impl TryFrom<Vec<u8>> for AppVersion {
     }
 }
 
-impl EthereumApp<'_> {
-
-    pub fn new(ledger: &LedgerKey) -> EthereumApp {
-        EthereumApp {
-            ledger
-        }
-    }
+impl EthereumApp {
 
     /// Get address
     ///
@@ -144,8 +139,12 @@ impl EthereumApp<'_> {
             .with_p2(0x01)
             .with_data(hd_path.to_bytes().as_slice())
             .build();
-        let mut handle = self.ledger.open()?;
-        sendrecv(&mut handle, &apdu)
+
+        let mut ledger = self.ledger.lock().unwrap();
+
+
+        // let mut handle = self.ledger.lock().unwrap().deref();
+        sendrecv(&mut *ledger, &apdu)
             .and_then(|res| AddressResponse::try_from(res))
     }
 
@@ -173,19 +172,15 @@ impl EthereumApp<'_> {
             .with_data(init)
             .build();
 
-        if !self.ledger.have_device() {
-            return Err(HWKeyError::OtherError("Device not selected".to_string()));
-        }
-
-        let mut handle = self.ledger.open()?;
-        let mut res = sendrecv(&mut handle, &init_apdu)?;
+        let mut handle = self.ledger.lock().unwrap();
+        let mut res = sendrecv(&mut *handle, &init_apdu)?;
 
         for chunk in cont.chunks(CHUNK_SIZE) {
             let apdu_cont = ApduBuilder::new(COMMAND_SIGN_TRANSACTION)
                 .with_p1(0x80)
                 .with_data(chunk)
                 .build();
-            res = sendrecv(&mut handle, &apdu_cont)?;
+            res = sendrecv(&mut *handle, &apdu_cont)?;
         }
         debug!("Received signature: {:?}", hex::encode(&res));
         match res.len() {
@@ -205,8 +200,8 @@ impl EthereumApp<'_> {
     pub fn get_version(&self) -> Result<AppVersion, HWKeyError> {
         let apdu = ApduBuilder::new(COMMAND_APP_CONFIG)
             .build();
-        let mut handle = self.ledger.open()?;
-        let resp = sendrecv(&mut handle, &apdu)?;
+        let mut handle = self.ledger.lock().unwrap();
+        let resp = sendrecv(&mut *handle, &apdu)?;
         AppVersion::try_from(resp).map_err(|_| HWKeyError::EncodingError("Invalid version config".to_string()))
     }
 
@@ -216,7 +211,7 @@ impl EthereumApp<'_> {
     }
 }
 
-impl PubkeyAddressApp for EthereumApp<'_> {
+impl PubkeyAddressApp for EthereumApp {
     fn get_extkey_at(&self, hd_path: &dyn HDPath) -> Result<Box<dyn AsExtendedKey>, HWKeyError> {
         let address = self.get_address(hd_path, false)?;
         Ok(Box::new(address))
@@ -229,10 +224,16 @@ pub enum EthereumApps {
     EthereumClassic
 }
 
-impl LedgerApp for EthereumApp<'_> {
-    type Category = EthereumApps;
+impl LedgerApp for EthereumApp {
+    type Networks = EthereumApps;
 
-    fn is_open(&self) -> Option<Self::Category> {
+    fn new(manager: Arc<Mutex<dyn LedgerConnection>>) -> Self{
+        EthereumApp {
+            ledger: manager
+        }
+    }
+
+    fn is_open(&self) -> Option<Self::Networks> {
         self.get_version().ok().and_then(|_| {
             // ETC app gives address for both m/44'/60' and m/44'/61'
             // but ETH app gives only address for m/44'/60'

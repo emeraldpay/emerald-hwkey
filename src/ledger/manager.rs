@@ -32,6 +32,7 @@ use std::{
 };
 use std::ops::Deref;
 use std::convert::TryFrom;
+use crate::ledger::traits::LedgerApp;
 
 pub const CHUNK_SIZE: usize = 255;
 
@@ -265,6 +266,13 @@ impl LedgerKey {
         }
     }
 
+    ///
+    /// Access a particular type of app. Please ensure that the app is actually launched with [get_app_details] before accessing it.
+    pub fn access<T: LedgerApp>(&self) -> Result<T, HWKeyError> {
+        let conn = self.open()?;
+        Ok(T::new(Arc::new(Mutex::new(conn))))
+    }
+
 }
 
 fn read_string(pos: usize, buf: &Vec<u8>) -> Result<(String, usize), HWKeyError> {
@@ -315,7 +323,9 @@ impl TryFrom<Vec<u8>> for AppDetails {
     }
 }
 
+
 #[cfg(test)]
+#[allow(unused_imports)]
 mod tests {
     use crate::ledger::{
         manager::{LedgerKey, AppDetails},

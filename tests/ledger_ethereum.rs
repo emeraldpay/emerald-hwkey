@@ -67,7 +67,7 @@ fn read_test_txes() -> Vec<TestTx> {
 pub fn get_ethereum_address() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
-    let app = EthereumApp::new(&manager);
+    let app = manager.access::<EthereumApp>().unwrap();
 
     let addresses = read_test_addresses();
     for address in addresses {
@@ -105,7 +105,7 @@ pub fn get_xpub_0() {
 
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
-    let app = EthereumApp::new(&manager);
+    let app = manager.access::<EthereumApp>().unwrap();
 
     let hdpath = AccountHDPath::try_from("m/44'/60'/0'").expect("Invalid HDPath");
 
@@ -122,7 +122,7 @@ pub fn get_xpub_etc_1() {
 
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
-    let app = EthereumApp::new(&manager);
+    let app = manager.access::<EthereumApp>().unwrap();
 
     let hdpath = AccountHDPath::try_from("m/44'/61'/1'").expect("Invalid HDPath");
 
@@ -137,7 +137,7 @@ pub fn get_xpub_etc_1() {
 pub fn is_ethereum_open() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
-    let app = EthereumApp::new(&manager);
+    let app = manager.access::<EthereumApp>().unwrap();
     let open = app.is_open();
     assert_eq!(Some(EthereumApps::Ethereum), open);
 }
@@ -147,7 +147,7 @@ pub fn is_ethereum_open() {
 pub fn is_ethereum_closed() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
-    let app = EthereumApp::new(&manager);
+    let app = manager.access::<EthereumApp>().unwrap();
     let open = app.is_open();
     assert_ne!(Some(EthereumApps::Ethereum), open);
 }
@@ -157,7 +157,7 @@ pub fn is_ethereum_closed() {
 pub fn is_ethereum_classic_open() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
-    let app = EthereumApp::new(&manager);
+    let app = manager.access::<EthereumApp>().unwrap();
     let open = app.is_open();
     assert_eq!(Some(EthereumApps::EthereumClassic), open);
 }
@@ -167,7 +167,7 @@ pub fn is_ethereum_classic_open() {
 pub fn is_ethereum_classic_closed() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
-    let app = EthereumApp::new(&manager);
+    let app = manager.access::<EthereumApp>().unwrap();
     let open = app.is_open();
     assert_ne!(Some(EthereumApps::EthereumClassic), open);
 }
@@ -177,7 +177,7 @@ pub fn is_ethereum_classic_closed() {
 fn internal_tx_sign(exp: &TestTx) {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
-    let app = EthereumApp::new(&manager);
+    let app = manager.access::<EthereumApp>().unwrap();
 
     println!("Test: {:}", exp.id);
     let from = exp.from.as_ref().unwrap();

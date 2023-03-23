@@ -30,7 +30,7 @@ lazy_static! {
 pub fn is_bitcoin_open() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
-    let app = BitcoinApp::new(&manager);
+    let app = manager.access::<BitcoinApp>().unwrap();
     let open = app.is_open();
     assert_eq!(Some(BitcoinApps::Mainnet), open);
 }
@@ -40,7 +40,7 @@ pub fn is_bitcoin_open() {
 pub fn get_bitcoin_address() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
-    let app = BitcoinApp::new(&manager);
+    let app = manager.access::<BitcoinApp>().unwrap();
 
     let hdpath = StandardHDPath::try_from("m/84'/0'/0'/0/0").expect("Invalid HDPath");
     let act = app.get_address(&hdpath, GetAddressOpts::default()).expect("Failed to get address");
@@ -70,7 +70,7 @@ pub fn get_bitcoin_address_confirmed() {
     let (tx, rx) = mpsc::channel();
     spawn(move || {
         let hdpath = StandardHDPath::try_from("m/84'/0'/0'/0/0").expect("Invalid HDPath");
-        let app = BitcoinApp::new(&manager);
+        let app = manager.access::<BitcoinApp>().unwrap();
         let act = app.get_address(&hdpath, GetAddressOpts::confirm()).expect("Failed to get address");
         tx.send(act).unwrap();
     });
@@ -119,7 +119,7 @@ pub fn sign_bitcoin_tx_1() {
         };
 
         println!("Sign tx {}", hex::encode(tx.serialize()));
-        let app = BitcoinApp::new(&manager);
+        let app = manager.access::<BitcoinApp>().unwrap();
         let signed = app.sign_tx(&mut tx, &SignTx {
             inputs: vec![
                 UnsignedInput {

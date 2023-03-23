@@ -29,7 +29,7 @@ lazy_static! {
 pub fn is_bitcoin_open() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
-    let app = BitcoinApp::new(&manager);
+    let app = manager.access::<BitcoinApp>().unwrap();
     let open = app.is_open();
     assert_eq!(Some(BitcoinApps::Mainnet), open);
 }
@@ -39,7 +39,7 @@ pub fn is_bitcoin_open() {
 pub fn is_bitcoin_closed() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
-    let app = BitcoinApp::new(&manager);
+    let app = manager.access::<BitcoinApp>().unwrap();
     let open = app.is_open();
     assert_ne!(Some(BitcoinApps::Mainnet), open);
 }
@@ -49,7 +49,7 @@ pub fn is_bitcoin_closed() {
 pub fn is_bitcoin_test_open() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
-    let app = BitcoinApp::new(&manager);
+    let app = manager.access::<BitcoinApp>().unwrap();
     let open = app.is_open();
     assert_eq!(Some(BitcoinApps::Testnet), open);
 }
@@ -59,7 +59,7 @@ pub fn is_bitcoin_test_open() {
 pub fn get_bitcoin_address() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
-    let app = BitcoinApp::new(&manager);
+    let app = manager.access::<BitcoinApp>().unwrap();
 
     let hdpath = StandardHDPath::try_from("m/84'/0'/0'/0/0").expect("Invalid HDPath");
     let act = app.get_address(&hdpath, GetAddressOpts::default()).expect("Failed to get address");
@@ -82,7 +82,7 @@ pub fn get_bitcoin_address() {
 pub fn get_bitcoin_address_legacy() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
-    let app = BitcoinApp::new(&manager);
+    let app = manager.access::<BitcoinApp>().unwrap();
 
     let opts = GetAddressOpts {
         address_type: AddressType::Legacy,
@@ -107,7 +107,7 @@ pub fn get_bitcoin_address_legacy() {
 pub fn get_bitcoin_address_segwit_compat() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
-    let app = BitcoinApp::new(&manager);
+    let app = manager.access::<BitcoinApp>().unwrap();
 
     let opts = GetAddressOpts {
         address_type: AddressType::SegwitCompat,
@@ -132,7 +132,7 @@ pub fn get_bitcoin_address_segwit_compat() {
 pub fn get_bitcoin_address_testnet() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
-    let app = BitcoinApp::new(&manager);
+    let app = manager.access::<BitcoinApp>().unwrap();
 
     let opts = GetAddressOpts {
         network: Network::Testnet,
@@ -160,7 +160,7 @@ pub fn get_bitcoin_address_testnet() {
 pub fn confirm_get_bitcoin_address() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
-    let app = BitcoinApp::new(&manager);
+    let app = manager.access::<BitcoinApp>().unwrap();
 
     let hdpath = StandardHDPath::try_from("m/84'/0'/0'/0/0").expect("Invalid HDPath");
     let act = app.get_address(&hdpath, GetAddressOpts::confirm()).expect("Failed to get address");
@@ -172,7 +172,7 @@ pub fn confirm_get_bitcoin_address() {
 pub fn compat_get_bitcoin_address() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
-    let app = BitcoinApp::new(&manager);
+    let app = manager.access::<BitcoinApp>().unwrap();
 
     let hdpath = StandardHDPath::try_from("m/49'/3'/0'/0/0").expect("Invalid HDPath");
     let act = app.get_address(&hdpath, GetAddressOpts::compat_address()).expect("Failed to get address");
@@ -184,7 +184,7 @@ pub fn compat_get_bitcoin_address() {
 pub fn get_xpub_0() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
-    let app = BitcoinApp::new(&manager);
+    let app = manager.access::<BitcoinApp>().unwrap();
 
     let hdpath = AccountHDPath::try_from("m/44'/0'/0'").expect("Invalid HDPath");
 
@@ -199,7 +199,7 @@ pub fn get_xpub_0() {
 pub fn get_xpub_1() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
-    let app = BitcoinApp::new(&manager);
+    let app = manager.access::<BitcoinApp>().unwrap();
 
     let hdpath = AccountHDPath::try_from("m/44'/0'/1'").expect("Invalid HDPath");
 
@@ -214,7 +214,7 @@ pub fn get_xpub_1() {
 pub fn get_xpub_84_0() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
-    let app = BitcoinApp::new(&manager);
+    let app = manager.access::<BitcoinApp>().unwrap();
 
     let hdpath = AccountHDPath::try_from("m/84'/0'/0'").expect("Invalid HDPath");
 
@@ -231,7 +231,7 @@ pub fn get_xpub_84_0() {
 pub fn get_xpub_84_17() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
-    let app = BitcoinApp::new(&manager);
+    let app = manager.access::<BitcoinApp>().unwrap();
 
     let hdpath = AccountHDPath::try_from("m/84'/0'/17'").expect("Invalid HDPath");
 
@@ -248,7 +248,7 @@ pub fn get_xpub_84_17() {
 pub fn get_xpub_test() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
-    let app = BitcoinApp::new(&manager);
+    let app = manager.access::<BitcoinApp>().unwrap();
 
     let hdpath = AccountHDPath::try_from("m/44'/1'/5'").expect("Invalid HDPath");
 
@@ -263,7 +263,7 @@ pub fn get_xpub_test() {
 pub fn address_within_xpub() {
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
-    let app = BitcoinApp::new(&manager);
+    let app = manager.access::<BitcoinApp>().unwrap();
 
     let secp = Secp256k1::new();
 
@@ -329,7 +329,7 @@ pub fn sign_bitcoin_tx_1() {
 
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
-    let app = BitcoinApp::new(&manager);
+    let app = manager.access::<BitcoinApp>().unwrap();
     let signed = app.sign_tx(&mut tx, &SignTx {
         inputs: vec![
             UnsignedInput {
@@ -443,7 +443,7 @@ pub fn sign_bitcoin_tx_2() {
 
     let mut manager = LedgerKey::new().unwrap();
     manager.connect().expect("Not connected");
-    let app = BitcoinApp::new(&manager);
+    let app = manager.access::<BitcoinApp>().unwrap();
     let signed = app.sign_tx(&mut tx, &sign_with);
     assert!(signed.is_ok(), "Not ok {:?}", signed);
     println!("Signed: {}", hex::encode(tx.serialize()));

@@ -29,12 +29,24 @@ seven   myth    punch   hobby       comfort wild    raise   skin
 
 .Run it in docker as:
 ----
-docker run --rm -it -v $(pwd)/apps:/speculos/apps -p 5000:5000  speculos --display headless apps/btc.elf
+docker run --rm -it -p 5000:5000  speculos --display headless apps/btc.elf
 ----
 
 .Run tests:
 ----
 EMRLD_HWKEY_TEST=bitcoin cargo test --test speculos_bitcoin --features "speculos" -- --test-threads=1
+----
+
+=== Test against an Ethereum App
+
+.Run Speculos Docker with NanoX app:
+----
+docker run --rm -it -v $(pwd)/testdata/ledger-elf:/speculos/apps -p 6000:5000  speculos --model nanox --display headless apps/ethereum-nanox-2.0.2-1.9.18.elf
+----
+
+.Run tests:
+----
+EMRLD_HWKEY_TEST=ethereum cargo test --test speculos_ethereum --features "speculos" -- --test-threads=1
 ----
 
 === Integration Testing with Real Hardware

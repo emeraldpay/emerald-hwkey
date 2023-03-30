@@ -72,7 +72,7 @@ impl Speculos {
 
     ///
     /// Create from environment variables, where `SPECULOS_URL` can specify URL to an instance of Speculos.
-    /// By default it connects to `http://localhost:5000`
+    /// By default it connects to `http://localhost:8080`
     pub fn create_env() -> Speculos {
         let default = Speculos::default();
         let url = match env::var("SPECULOS_URL") {
@@ -197,7 +197,7 @@ impl Speculos {
 impl Default for Speculos {
     fn default() -> Self {
         Speculos {
-            url: "http://127.0.0.1:5000".to_string(),
+            url: "http://127.0.0.1:8080".to_string(),
             in_buf: Vec::new(),
             in_frame_seq: 0,
             out_buf: Vec::new(),

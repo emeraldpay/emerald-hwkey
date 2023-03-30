@@ -24,10 +24,36 @@ pub fn get_address() {
     assert_eq!(act.address, "0xDad77910DbDFdE764fC21FCD4E74D71bBACA6D8D");
     assert_eq!(hex::encode(act.pubkey.serialize()), "02ef5b152e3f15eb0c50c9916161c2309e54bd87b9adce722d69716bcdef85f547");
 
+    let hdpath = StandardHDPath::try_from("m/44'/60'/0'/0/1").expect("Invalid HDPath");
+    let act = app.get_address(&hdpath, false).expect("Failed to get address");
+    assert_eq!(act.address, "0xd692Cb1346262F584D17B4B470954501f6715a82");
+    assert_eq!(hex::encode(act.pubkey.serialize()), "03072993d175eea6ef5df9f1370c834e1321de0ad90255af580fda11a016c59a14");
+
+    let hdpath = StandardHDPath::try_from("m/44'/60'/0'/0/2").expect("Invalid HDPath");
+    let act = app.get_address(&hdpath, false).expect("Failed to get address");
+    assert_eq!(act.address, "0xfeb0594A0561d0DF76EA8b2F52271538e6704f75");
+    assert_eq!(hex::encode(act.pubkey.serialize()), "026d28a418c395c221c46d3e308d612c2d13cc5464d5eb7a02e1d142ed73fae3fb");
+
+    let hdpath = StandardHDPath::try_from("m/44'/60'/0'/0/3").expect("Invalid HDPath");
+    let act = app.get_address(&hdpath, false).expect("Failed to get address");
+    assert_eq!(act.address, "0x5c886862AAbA7e342c8708190c42C14BD63e9058");
+    assert_eq!(hex::encode(act.pubkey.serialize()), "034fead5f71d6a12d622e047f5b51d5b67935383a2cab014f020de37bec7de2442");
+
+    let hdpath = StandardHDPath::try_from("m/44'/60'/0'/0/4").expect("Invalid HDPath");
+    let act = app.get_address(&hdpath, false).expect("Failed to get address");
+    assert_eq!(act.address, "0x766aedBf5FC4366Fe48D49604CAE12Ba11630A60");
+    assert_eq!(hex::encode(act.pubkey.serialize()), "026f3b2877a3ddc326635d95f848631ee19e9d1fdbe6531f913f3b309fde604a31");
+
+
     let hdpath = StandardHDPath::try_from("m/44'/60'/1'/0/5").expect("Invalid HDPath");
     let act = app.get_address(&hdpath, false).expect("Failed to get address");
     assert_eq!(act.address, "0x204e73c731f06cF38C2486A768c579aC3fa412ba");
     assert_eq!(hex::encode(act.pubkey.serialize()), "0378cd117abe05a0c33e79cac3b2014ac30a65f959abf72b55f5bc8265bac4d0f0");
+
+    let hdpath = StandardHDPath::try_from("m/44'/60'/1'/1/1").expect("Invalid HDPath");
+    let act = app.get_address(&hdpath, false).expect("Failed to get address");
+    assert_eq!(act.address, "0xF249865B00b342d9B888b6D01f4d937B07828506");
+    assert_eq!(hex::encode(act.pubkey.serialize()), "039120c9b52001f02f49888e7d6fbee1851a1b9e4378951a4b998253d958b289e9");
 }
 
 #[test]

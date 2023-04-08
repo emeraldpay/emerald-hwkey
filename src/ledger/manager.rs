@@ -104,6 +104,9 @@ pub struct LedgerKey {
     /// HID point used for communication
     #[cfg(not(feature = "speculos"))]
     hid: Arc<Mutex<HidApi>>,
+
+    #[cfg(feature = "speculos")]
+    speculos: Arc<Mutex<crate::ledger::speculos::Speculos>>,
     /// List of available wallets
     device: Option<Device>,
 }
@@ -125,6 +128,7 @@ impl LedgerKey {
     pub fn new() -> Result<LedgerKey, HWKeyError> {
         Ok(Self {
             device: None,
+            speculos: Arc::new(Mutex::new(crate::ledger::speculos::Speculos::create_env())),
         })
     }
 
@@ -151,6 +155,11 @@ impl LedgerKey {
     #[cfg(feature = "speculos")]
     pub fn have_device(&self) -> bool {
         let conn = self.open();
+        if conn.is_err() {
+            return false
+        }
+        let conn = conn.unwrap();
+        let conn = conn.lock();
         if conn.is_err() {
             return false
         }
@@ -199,7 +208,18 @@ impl LedgerKey {
 
     #[cfg(feature = "speculos")]
     pub fn connect(&mut self) -> Result<(), HWKeyError> {
-        let connected = self.open()?.is_available()?;
+        let conn = self.open();
+        if conn.is_err() {
+            return Err(HWKeyError::Unavailable)
+        }
+        let conn = conn.unwrap();
+        let conn = conn.lock();
+        if conn.is_err() {
+            return Err(HWKeyError::Unavailable)
+        }
+        let conn = conn.unwrap();
+
+        let connected = conn.is_available()?;
         if connected {
             Ok(())
         } else {
@@ -208,7 +228,7 @@ impl LedgerKey {
     }
 
     #[cfg(not(feature = "speculos"))]
-    pub fn open(&self) -> Result<HidDevice, HWKeyError> {
+    pub fn open(&self) -> Result<Arc<Mutex<HidDevice>>, HWKeyError> {
         match &self.device {
             None => Err(HWKeyError::Unavailable),
             Some(target) => {
@@ -224,7 +244,10 @@ impl LedgerKey {
                         match ping(&mut h) {
                             Ok(v) => {
                                 if v {
-                                    return Ok(h);
+                                    //
+                                    // HidDevice keeps a lock of the HidApi so it should be ok to give a Mutex over the HidDevice itself
+                                    //
+                                    return Ok(Arc::new(Mutex::new(h)));
                                 }
                             }
                             Err(_) => {}
@@ -243,8 +266,8 @@ impl LedgerKey {
     }
 
     #[cfg(feature = "speculos")]
-    pub fn open(&self) -> Result<crate::ledger::speculos::Speculos, HWKeyError> {
-        Ok(crate::ledger::speculos::Speculos::create_env())
+    pub fn open(&self) -> Result<Arc<Mutex<crate::ledger::speculos::Speculos>>, HWKeyError> {
+        Ok(self.speculos.clone())
     }
 
     ///
@@ -256,8 +279,10 @@ impl LedgerKey {
             ins: 0x01,
             ..APDU::default()
         };
-        let mut device = self.open()?;
-        match sendrecv_timeout(&mut device, &apdu, 100) {
+        let device = self.open()?;
+        let mut conn = device.lock()
+            .map_err(|_| HWKeyError::Unavailable)?;
+        match sendrecv_timeout(&mut *conn, &apdu, 100) {
             Err(e) => match e {
                 HWKeyError::EmptyResponse => Ok(AppDetails::default()),
                 _ => Err(e),
@@ -270,7 +295,7 @@ impl LedgerKey {
     /// Access a particular type of app. Please ensure that the app is actually launched with [get_app_details] before accessing it.
     pub fn access<T: LedgerApp>(&self) -> Result<T, HWKeyError> {
         let conn = self.open()?;
-        Ok(T::new(Arc::new(Mutex::new(conn))))
+        Ok(T::new(conn))
     }
 
 }

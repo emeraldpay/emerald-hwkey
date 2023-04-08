@@ -2,8 +2,13 @@
 #![allow(dead_code)]
 
 use std::convert::TryFrom;
-use std::sync::mpsc;
+use std::sync::{Arc, mpsc, Mutex};
+use std::thread;
 use std::thread::spawn;
+use std::time::Duration;
+use rand::prelude::*;
+use rand::seq::SliceRandom;
+use rand::thread_rng;
 use hdpath::StandardHDPath;
 use log::LevelFilter;
 use simple_logger::SimpleLogger;
@@ -54,6 +59,62 @@ pub fn get_address() {
     let act = app.get_address(&hdpath, false).expect("Failed to get address");
     assert_eq!(act.address, "0xF249865B00b342d9B888b6D01f4d937B07828506");
     assert_eq!(hex::encode(act.pubkey.serialize()), "039120c9b52001f02f49888e7d6fbee1851a1b9e4378951a4b998253d958b289e9");
+}
+
+#[test]
+#[cfg(all(ethereum, integration_test, feature = "speculos"))]
+pub fn get_address_parallel() {
+    let addresses: Vec<(StandardHDPath, String)> = vec![
+        ("m/44'/60'/0'/0/0", "0xDad77910DbDFdE764fC21FCD4E74D71bBACA6D8D"),
+        ("m/44'/60'/0'/0/1", "0xd692Cb1346262F584D17B4B470954501f6715a82"),
+        ("m/44'/60'/0'/0/2", "0xfeb0594A0561d0DF76EA8b2F52271538e6704f75"),
+        ("m/44'/60'/0'/0/3", "0x5c886862AAbA7e342c8708190c42C14BD63e9058"),
+        ("m/44'/60'/0'/0/4", "0x766aedBf5FC4366Fe48D49604CAE12Ba11630A60"),
+        ("m/44'/60'/0'/0/5", "0xbC2F9a0F57d2EDD630f2327C5E0caBff565c6B13"),
+        ("m/44'/60'/0'/0/6", "0xF0eb55adF53795257118Af626206dAb7C43F8b04"),
+        ("m/44'/60'/0'/0/7", "0x2de8e81E02154D954547322e412e3A2b2eE96C82"),
+        ("m/44'/60'/0'/0/8", "0x014a648258C68b02980EF7a610E9468DAf14aBC9"),
+        ("m/44'/60'/0'/0/9", "0xe0EA7FbA9Dc2d1901529CA45d5c2daD908F408E2"),
+    ]
+        .iter()
+        .map(|p| (StandardHDPath::try_from(p.0).unwrap(), p.1.to_string() ))
+        .collect();
+
+    let mut threads = vec![];
+
+    let mut manager = LedgerKey::new().unwrap();
+    manager.connect().expect("Not connected");
+    manager.access::<EthereumApp>().unwrap();
+
+    let manager = Arc::new(manager);
+    let mut rnd = rand::thread_rng();
+
+    for _ in 0..10 {
+        let mut addresses = addresses.clone();
+        addresses.shuffle(&mut rnd);
+        let manager = Arc::clone(&manager);
+        threads.push(
+            thread::spawn( move || {
+                let mut rnd = rand::thread_rng();
+                for p in addresses {
+                    let hdpath = p.0;
+                    let address = p.1;
+
+                    let jitter = rnd.gen_range(1..5);
+                    thread::sleep(Duration::from_millis(jitter));
+                    let current = manager.access::<EthereumApp>().unwrap();
+                    let act = current.get_address(&hdpath, false).unwrap();
+
+                    println!("address {}: {} >=< {}", hdpath.to_string(), address, act.address);
+                    assert_eq!(act.address, *address);
+                }
+            })
+        );
+    }
+
+    for thread in threads {
+        thread.join().unwrap()
+    }
 }
 
 #[test]

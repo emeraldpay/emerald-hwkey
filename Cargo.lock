@@ -143,6 +143,7 @@ dependencies = [
  "lazy_static",
  "log",
  "quickcheck",
+ "rand 0.8.5",
  "ripemd",
  "secp256k1",
  "serde",
@@ -203,9 +204,9 @@ dependencies = [
 
 [[package]]
 name = "hdpath"
-version = "0.6.1"
+version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dafb09e5d85df264339ad786a147d9de1da13687a3697c52244297e5e7c32d9c"
+checksum = "09ae1615f843ce3981b47468f3f7c435ac17deb33c2261e64d7f1e87f5c11acc"
 dependencies = [
  "byteorder",
 ]
@@ -315,6 +316,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3831453b3449ceb48b6d9c7ad7c96d5ea673e9b470a1dc578c2ce6521230884c"
 
 [[package]]
+name = "ppv-lite86"
+version = "0.2.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5b40af805b3121feab8a3c29f04d8ad262fa8e0561883e7653e024ae4479e6de"
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.49"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -362,6 +369,18 @@ version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34af8d1a0e25924bc5b7c43c079c942339d8f0a8b57c39049bef581b46327404"
 dependencies = [
+ "libc",
+ "rand_chacha",
+ "rand_core 0.6.4",
+]
+
+[[package]]
+name = "rand_chacha"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6c10a63a0fa32252be49d21e7709d4d4baf8d231c2dbce1eaa8141b9b127d88"
+dependencies = [
+ "ppv-lite86",
  "rand_core 0.6.4",
 ]
 

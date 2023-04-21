@@ -66,6 +66,15 @@ At least for the Ledger Nano products.
 WARNING: Never transfer real money to the Test Ledger or any wallet created from the Mnemonic Phrase above.
          Since the Phrase is public all the money would be stolen immediately.
 
+
+==== Ledger + No App
+
+*No App* must be open on Ledger
+
+----
+EMRLD_HWKEY_TEST=ledger_noapp cargo test --test ledger_noapp -- --test-threads=1
+----
+
 ==== Ledger + Bitcoin App
 
 *Bitcoin App* must be open on Ledger

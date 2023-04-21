@@ -16,7 +16,14 @@ pub enum HWKeyError {
     /// Something else
     OtherError(String),
     /// On invalid input to the library
-    InputError(String)
+    InputError(String),
+
+    InvalidResponse(ResponseError)
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum ResponseError {
+    ShortLedgerVersion,
 }
 
 impl From<io::Error> for HWKeyError {
@@ -46,7 +53,8 @@ impl fmt::Display for HWKeyError {
             HWKeyError::CommError(ref str) => write!(f, "Communication protocol error: {}", str),
             HWKeyError::EncodingError(ref str) => write!(f, "Encoding error: {}", str),
             HWKeyError::OtherError(ref str) => write!(f, "HWKey other error: {}", str),
-            HWKeyError::InputError(ref str) => write!(f, "HWKey invalid input: {}", str)
+            HWKeyError::InputError(ref str) => write!(f, "HWKey invalid input: {}", str),
+            HWKeyError::InvalidResponse(e) => write!(f, "HWKey invalid resp: {:?}", e),
         }
     }
 }

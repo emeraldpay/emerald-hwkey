@@ -32,6 +32,7 @@ use std::{
 };
 use std::ops::Deref;
 use std::convert::TryFrom;
+use crate::errors::ResponseError;
 use crate::ledger::traits::LedgerApp;
 
 pub const CHUNK_SIZE: usize = 255;
@@ -70,6 +71,12 @@ pub struct AppDetails {
     pub name: String,
     pub version: String,
     pub flags: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct LedgerDetails {
+    pub firmware_version: String,
+    pub mcu_version: String,
 }
 
 impl Default for AppDetails {
@@ -292,6 +299,22 @@ impl LedgerKey {
     }
 
     ///
+    /// Get information about the Ledger itself.
+    /// It's available _only if no app_ is launched.
+    pub fn get_ledger_version(&self) -> Result<LedgerDetails, HWKeyError> {
+        let apdu = APDU {
+            cla: 0xe0,
+            ins: 0x01,
+            ..APDU::default()
+        };
+        let device = self.open()?;
+        let mut conn = device.lock()
+            .map_err(|_| HWKeyError::Unavailable)?;
+        let resp = sendrecv_timeout(&mut *conn, &apdu, 100)?;
+        LedgerDetails::try_from(resp)
+    }
+
+    ///
     /// Access a particular type of app. Please ensure that the app is actually launched with [get_app_details] before accessing it.
     pub fn access<T: LedgerApp>(&self) -> Result<T, HWKeyError> {
         let conn = self.open()?;
@@ -300,31 +323,37 @@ impl LedgerKey {
 
 }
 
-fn read_string(pos: usize, buf: &Vec<u8>) -> Result<(String, usize), HWKeyError> {
+pub(crate) fn read_slice(pos: usize, buf: &Vec<u8>) -> Result<(Vec<u8>, usize), HWKeyError> {
     if buf.len() <= pos {
-        return Ok(("".to_string(), pos));
+        return Ok((vec![], pos));
     }
     let len = buf[pos] as usize;
 
     // in general the 0x90 must be cut because of the data length in the frame, but sometimes it produces the whole response
     if len == 0 || len == 0x90 {
-        return Ok(("".to_string(), pos + 1));
+        return Ok((vec![], pos + 1));
     }
-    if len + pos + 1 > buf.len() {
-        return Err(HWKeyError::EncodingError(format!("Cannot read {} at {} from {}", len, pos + 1, buf.len())));
+    let end = pos + 1 + len;
+    if end > buf.len() {
+        return Err(HWKeyError::EncodingError(format!("Cannot read {} at {} ({}..{}) from {}", len, pos + 1, pos+1, end, buf.len())));
     }
-    let codes = &buf[pos+1..pos+1+len];
+    let codes = &buf[pos+1..end];
+    Ok((codes.to_vec(), end))
+}
+
+pub(crate) fn read_string(pos: usize, buf: &Vec<u8>) -> Result<(String, usize), HWKeyError> {
+    let (codes, end) = read_slice(pos, buf)?;
 
     // Some apps (BOLOS for example) has a bug that produces the zero-terminator into the output so we just cut it off here
-    let codes = if let Some(nul_pos) = codes.into_iter().position(|c| *c == 0u8) {
-        &codes[0..nul_pos]
+    let codes = if let Some(nul_pos) = codes.iter().position(|c| *c == 0u8) {
+        codes[0..nul_pos].to_vec()
     } else {
-        &codes
+        codes
     };
 
-    let s = String::from_utf8(codes.to_vec())
-        .map_err(|_| HWKeyError::EncodingError(format!("Not a string at {}..{}", pos + 1, pos + 1 + len)))?;
-    Ok((s, pos + 1 + len))
+    let s = String::from_utf8(codes)
+        .map_err(|_| HWKeyError::EncodingError(format!("Not a string at {}..{}", pos + 1, end)))?;
+    Ok((s, end))
 }
 
 impl TryFrom<Vec<u8>> for AppDetails {
@@ -348,6 +377,29 @@ impl TryFrom<Vec<u8>> for AppDetails {
     }
 }
 
+impl TryFrom<Vec<u8>> for LedgerDetails {
+
+    type Error = HWKeyError;
+
+    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        if value.len() < 5 {
+            return Err(HWKeyError::InvalidResponse(ResponseError::ShortLedgerVersion))
+        }
+        // TODO unclear what is in the first 4 bytes. It seems that it supposed to show the type of connection,
+        // but there is no reference for those values
+        let pos = 4;
+        let (firmware_version, pos) = read_string(pos, &value)?;
+        // TODO another unknown block
+        let (_, pos) = read_slice(pos, &value)?;
+        let (mcu_version, _) = read_string(pos, &value)?;
+
+        Ok(LedgerDetails {
+            firmware_version,
+            mcu_version,
+        })
+    }
+}
+
 
 #[cfg(test)]
 #[allow(unused_imports)]
@@ -359,6 +411,41 @@ mod tests {
     };
     use core::convert::TryFrom;
     use log::Level;
+    use crate::ledger::manager::LedgerDetails;
+    use crate::ledger::manager::read_string;
+    use crate::ledger::manager::read_slice;
+
+    #[test]
+    pub fn can_read_string() {
+        assert_eq!(
+            read_string(0, &hex::decode("07312e322e342d31").unwrap()).unwrap(),
+            ("1.2.4-1".to_string(), 8)
+        );
+        assert_eq!(
+            read_string(0, &hex::decode("03322e38").unwrap()).unwrap(),
+            ("2.8".to_string(), 4)
+        );
+        assert_eq!(
+            read_string(1, &hex::decode("0003322e38").unwrap()).unwrap(),
+            ("2.8".to_string(), 5)
+        );
+        assert_eq!(
+            read_string(17, &hex::decode("3300000407312e322e342d3104a600000003322e38").unwrap()).unwrap(),
+            ("2.8".to_string(), 21)
+        );
+    }
+
+    #[test]
+    pub fn can_read_slice() {
+        assert_eq!(
+            read_slice(0, &hex::decode("07312e322e342d31").unwrap()).unwrap(),
+            (hex::decode("312e322e342d31").unwrap(), 8)
+        );
+        assert_eq!(
+            read_slice(17, &hex::decode("3300000407312e322e342d3104a600000003322e38").unwrap()).unwrap(),
+            (hex::decode("322e38").unwrap(), 21)
+        );
+    }
 
     #[test]
     pub fn parse_ethereum_version() {
@@ -429,9 +516,23 @@ mod tests {
     }
 
     #[test]
+    pub fn parse_ledger() {
+        let raw = hex::decode("3300000407312e322e342d3104a600000003322e38").unwrap();
+        let act = LedgerDetails::try_from(raw);
+        if !act.is_ok() {
+            println!("Error: {}", act.clone().err().unwrap())
+        }
+        assert!(act.is_ok());
+        let act = act.unwrap();
+        assert_eq!(act.firmware_version, "1.2.4-1");
+        assert_eq!(act.mcu_version, "2.8");
+    }
+
+
+    #[test]
     #[cfg(integration_test)]
     /// Just for testing the responses from an actual device
-    pub fn check_version() {
+    pub fn check_app_version() {
         simple_logger::init_with_level(Level::Trace).unwrap();
         let mut manager = LedgerKey::new_connected().unwrap();
         let apdu = APDU {
@@ -439,9 +540,11 @@ mod tests {
             ins: 0x01,
             ..APDU::default()
         };
-        let mut device = manager.open().expect("Cannot open");
+        let device = manager.open()
+            .expect("Cannot open");
+        let mut device = device.lock().unwrap();
 
-        let resp = sendrecv(&mut device, &apdu).unwrap();
+        let resp = sendrecv(&mut *device, &apdu).unwrap();
         println!("resp app version: {:}", hex::encode(resp));
 
         let apdu = APDU {
@@ -449,7 +552,33 @@ mod tests {
             ins: 0x01,
             ..APDU::default()
         };
-        let resp = sendrecv(&mut device, &apdu).unwrap();
+        let resp = sendrecv(&mut *device, &apdu).unwrap();
         println!("resp hw version: {:}", hex::encode(resp));
     }
+
+    // #[test]
+    // #[cfg(integration_test)]
+    // //Just for testing the responses from an actual device
+    // pub fn check_ledger_version() {
+    //     simple_logger::init_with_level(Level::Trace).unwrap();
+    //     let mut manager = LedgerKey::new_connected().unwrap();
+    //
+    //     let device = manager.open()
+    //         .expect("Cannot open");
+    //     let mut device = device.lock().unwrap();
+    //
+    //     for i in 0u8..255 {
+    //         let apdu = APDU {
+    //             cla: 0xb0,
+    //             ins: i,
+    //             ..APDU::default()
+    //         };
+    //
+    //         let resp = sendrecv(&mut *device, &apdu);
+    //         if resp.is_ok() {
+    //             println!("\nresp for {}: {:}\n", i, hex::encode(resp.unwrap()));
+    //         }
+    //     }
+    //
+    // }
 }

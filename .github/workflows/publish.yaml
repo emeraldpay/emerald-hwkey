@@ -25,7 +25,6 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: publish
-          args: --token ${CRATES_TOKEN}
+          args: --token ${{ secrets.CRATES_TOKEN }}
         env:
           RUST_BACKTRACE: "1"
-          CRATES_TOKEN: ${{ secrets.CRATES_TOKEN }}

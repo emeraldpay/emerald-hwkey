@@ -132,7 +132,7 @@ dependencies = [
 
 [[package]]
 name = "emerald-hwkey"
-version = "0.5.0-dev"
+version = "0.5.0"
 dependencies = [
  "bencher",
  "bitcoin",

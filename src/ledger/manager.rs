@@ -98,10 +98,16 @@ impl PartialEq for Device {
 impl From<&DeviceInfo> for Device {
     fn from(hid_info: &DeviceInfo) -> Self {
         let info = hid_info.clone();
+        Self::from(info)
+    }
+}
+
+impl From<DeviceInfo> for Device {
+    fn from(hid_info: DeviceInfo) -> Self {
         Device {
-            fd: info.path().to_string_lossy().to_string(),
+            fd: hid_info.path().to_string_lossy().to_string(),
             address: "".to_string(),
-            hid_info: info,
+            hid_info,
         }
     }
 }
@@ -124,7 +130,8 @@ impl LedgerKey {
     /// Make sure you have only one instance at a time, because when it's created it locks HID API to the instance.
     #[cfg(not(feature = "speculos"))]
     pub fn new() -> Result<LedgerKey, HWKeyError> {
-        let hid = HidApi::new().map_err(|_| HWKeyError::CommError("HID API is not available".to_string()))?;
+        let hid = HidApi::new_without_enumerate()
+            .map_err(|_| HWKeyError::CommError("HID API is not available".to_string()))?;
         Ok(Self {
             hid: Arc::new(Mutex::new(hid)),
             device: None,
@@ -181,23 +188,27 @@ impl LedgerKey {
     /// Update device list
     #[cfg(not(feature = "speculos"))]
     pub fn connect(&mut self) -> Result<(), HWKeyError> {
-        let hid_mutex = self.hid.deref();
-        let mut hid = hid_mutex.lock()
-            .map_err(|_| HWKeyError::CommError("HID API is locked".to_string()))?;
-        hid.refresh_devices()
-            .map_err(|_| HWKeyError::CommError("Failed to refresh".to_string()))?;
+        let current = {
+            let mut hid = self.hid.lock()
+                .map_err(|_| HWKeyError::CommError("HID API is locked".to_string()))?;
 
-        let current = hid.device_list().find(|hid_info| {
-            trace!("device {:?}", hid_info);
-            hid_info.vendor_id() == LEDGER_VID
-                && (hid_info.product_id() == LEDGER_S_PID_1
-                || hid_info.product_id() == LEDGER_S_PID_2
-                || hid_info.product_id() == LEDGER_S_PID_3
-                || hid_info.product_id() == LEDGER_X_PID_1
-                || hid_info.product_id() == LEDGER_X_PID_2
-                || hid_info.product_id() == LEDGER_X_PID_3
-                || hid_info.product_id() == LEDGER_X_PID_4)
-        });
+            hid.refresh_devices()
+                .map_err(|_| HWKeyError::CommError("Failed to refresh".to_string()))?;
+
+            let device = hid.device_list().find(|hid_info| {
+                trace!("device {:?}", hid_info);
+                hid_info.vendor_id() == LEDGER_VID
+                    && (hid_info.product_id() == LEDGER_S_PID_1
+                    || hid_info.product_id() == LEDGER_S_PID_2
+                    || hid_info.product_id() == LEDGER_S_PID_3
+                    || hid_info.product_id() == LEDGER_X_PID_1
+                    || hid_info.product_id() == LEDGER_X_PID_2
+                    || hid_info.product_id() == LEDGER_X_PID_3
+                    || hid_info.product_id() == LEDGER_X_PID_4)
+            }).map(|hid_info| hid_info.clone());
+
+            device
+        };
 
         if current.is_none() {
             debug!("No device connected");
@@ -235,41 +246,43 @@ impl LedgerKey {
     }
 
     #[cfg(not(feature = "speculos"))]
-    pub fn open(&self) -> Result<Arc<Mutex<HidDevice>>, HWKeyError> {
+    pub(crate) fn device(&self) -> Result<HidDevice, HWKeyError> {
         match &self.device {
             None => Err(HWKeyError::Unavailable),
             Some(target) => {
-                // up to 10 tries, starting from 50ms increasing by 25ms, in total 19250ms max
-                let mut retry_delay = 50;
-                for _ in 0..11 {
-                    //
-                    //serial number is always 0001
-                    if let Ok(mut h) = self
-                        .hid.lock().unwrap()
-                        .open(target.hid_info.vendor_id(), target.hid_info.product_id())
-                    {
-                        match ping(&mut h) {
-                            Ok(v) => {
-                                if v {
-                                    //
-                                    // HidDevice keeps a lock of the HidApi so it should be ok to give a Mutex over the HidDevice itself
-                                    //
-                                    return Ok(Arc::new(Mutex::new(h)));
-                                }
-                            }
-                            Err(_) => {}
-                        }
-                    }
-                    thread::sleep(time::Duration::from_millis(retry_delay));
-                    retry_delay += 25;
-                }
-                // used by another application
-                Err(HWKeyError::CommError(format!(
-                    "Device is locked by another application: {:?}",
-                    target.hid_info
-                )))
+                let hid = self.hid.lock().expect("Failed to lock HID access");
+                hid.open(target.hid_info.vendor_id(), target.hid_info.product_id())
+                    .map_err(|_| HWKeyError::CommError("Failed to open device".to_string()))
             }
         }
+    }
+
+    #[cfg(not(feature = "speculos"))]
+    pub fn open(&self) -> Result<Arc<Mutex<HidDevice>>, HWKeyError> {
+        // up to 10 tries, starting from 50ms increasing by 25ms, in total 19250ms max
+        let mut retry_delay = 50;
+        for _ in 0..11 {
+            {
+                //
+                //serial number is always 0001
+                let mut h = self.device()?;
+                match ping(&mut h) {
+                    Ok(v) => {
+                        if v {
+                            //
+                            // HidDevice keeps a lock of the HidApi so it should be ok to give a Mutex over the HidDevice itself
+                            //
+                            return Ok(Arc::new(Mutex::new(h)));
+                        }
+                    }
+                    Err(_) => {}
+                }
+            }
+            thread::sleep(time::Duration::from_millis(retry_delay));
+            retry_delay += 25;
+        }
+        // used by another application
+        Err(HWKeyError::CommError("Device is locked by another application".to_string()))
     }
 
     #[cfg(feature = "speculos")]

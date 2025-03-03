@@ -23,3 +23,4 @@ pub mod app_ethereum;
 pub mod app_bitcoin;
 #[cfg(feature = "speculos")]
 pub mod speculos;
+pub mod manager_mt;

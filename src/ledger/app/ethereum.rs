@@ -1,15 +1,21 @@
-use crate::errors::HWKeyError;
-use crate::ledger::apdu::ApduBuilder;
 use std::str::from_utf8;
 use std::sync::{Arc, Mutex};
-use crate::ledger::comm::{sendrecv, LedgerConnection};
-use crate::ledger::manager::{CHUNK_SIZE};
+use crate::{
+    errors::HWKeyError,
+    ledger::{
+        apdu::ApduBuilder,
+        app::{AsChainCode, AsExtendedKey, AsPubkey, LedgerApp, PubkeyAddressApp},
+        comm::{sendrecv, LedgerTransport},
+        commons::as_compact
+    },
+};
 use std::convert::TryFrom;
-use hdpath::{HDPath, AccountHDPath, Purpose};
-use bitcoin::secp256k1::PublicKey;
-use crate::ledger::traits::{AsPubkey, AsChainCode, AsExtendedKey, PubkeyAddressApp, LedgerApp};
-use crate::ledger::commons::as_compact;
-use bitcoin::util::bip32::ChainCode;
+use hdpath::{AccountHDPath, HDPath, Purpose};
+use bitcoin::{
+    secp256k1::PublicKey,
+    util::bip32::ChainCode
+};
+use crate::ledger::connect::direct::CHUNK_SIZE;
 
 /// ECDSA crypto signature length in bytes
 pub const ECDSA_SIGNATURE_BYTES: usize = 65;
@@ -21,7 +27,7 @@ const COMMAND_APP_CONFIG: u8 = 0x06;
 pub type SignatureBytes = [u8; ECDSA_SIGNATURE_BYTES];
 
 pub struct EthereumApp {
-    ledger: Arc<Mutex<dyn LedgerConnection>>
+    ledger: Arc<Mutex<dyn LedgerTransport>>
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -227,7 +233,7 @@ pub enum EthereumApps {
 impl LedgerApp for EthereumApp {
     type Networks = EthereumApps;
 
-    fn new(manager: Arc<Mutex<dyn LedgerConnection>>) -> Self{
+    fn new(manager: Arc<Mutex<dyn LedgerTransport>>) -> Self{
         EthereumApp {
             ledger: manager
         }
@@ -258,7 +264,7 @@ impl LedgerApp for EthereumApp {
 
 #[cfg(test)]
 mod tests {
-    use crate::ledger::app_ethereum::AddressResponse;
+    use crate::ledger::app::ethereum::AddressResponse;
     use std::convert::TryFrom;
 
     #[test]

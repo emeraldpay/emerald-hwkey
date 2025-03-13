@@ -1,11 +1,3 @@
-use crate::{
-    errors::HWKeyError,
-    ledger::{
-        apdu::ApduBuilder,
-        manager::{CHUNK_SIZE},
-        comm::{sendrecv}
-    }
-};
 use std::convert::TryFrom;
 use std::str::{from_utf8};
 use std::sync::{Arc, Mutex};
@@ -24,16 +16,24 @@ use bitcoin::{
         witness::Witness,
         opcodes
     },
-    util::psbt::serialize::Serialize
+    util::psbt::serialize::Serialize,
+    util::bip32::{ChainCode}
 };
 use byteorder::{WriteBytesExt, LittleEndian};
 use hdpath::{StandardHDPath, HDPath};
 use sha2::{Sha256, Digest};
 use ripemd::Ripemd160;
-use bitcoin::util::bip32::{ChainCode};
-use crate::ledger::comm::LedgerConnection;
-use crate::ledger::commons::as_compact;
-use crate::ledger::traits::{AsPubkey, AsChainCode, PubkeyAddressApp, AsExtendedKey, LedgerApp};
+use crate::{
+    ledger::{
+        comm::LedgerTransport,
+        commons::as_compact,
+        app::{AsPubkey, AsChainCode, PubkeyAddressApp, AsExtendedKey, LedgerApp}
+    }
+};
+use crate::errors::HWKeyError;
+use crate::ledger::apdu::ApduBuilder;
+use crate::ledger::comm::sendrecv;
+use crate::ledger::connect::direct::CHUNK_SIZE;
 
 const COMMAND_GET_ADDRESS: u8 = 0x40;
 const COMMAND_COIN_VERSION: u8 = 0x16;
@@ -55,7 +55,7 @@ pub enum AddressType {
 }
 
 pub struct BitcoinApp {
-    ledger: Arc<Mutex<dyn LedgerConnection>>
+    ledger: Arc<Mutex<dyn LedgerTransport>>
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -228,7 +228,7 @@ impl BitcoinApp {
         BitcoinApp::get_address_internal(&mut *handle, hd_path, opts)
     }
 
-    fn get_address_internal(device: &mut dyn LedgerConnection, hd_path: &dyn HDPath, opts: GetAddressOpts) -> Result<AddressResponse, HWKeyError> {
+    fn get_address_internal(device: &mut dyn LedgerTransport, hd_path: &dyn HDPath, opts: GetAddressOpts) -> Result<AddressResponse, HWKeyError> {
         let apdu = ApduBuilder::new(COMMAND_GET_ADDRESS)
             .with_data(hd_path.to_bytes().as_slice())
             .with_p1(if opts.confirmation {1} else {0})
@@ -301,7 +301,7 @@ impl BitcoinApp {
     }
 
     // see https://github.com/LedgerHQ/app-bitcoin/blob/master/doc/btc.asc#untrusted-hash-transaction-input-start
-    fn start_untrusted_hash_tx(&self, device: &mut dyn LedgerConnection, is_new_tx: bool, inputs: &Vec<InputDetails>, tx: &Transaction, second_pass: bool) -> Result<(), HWKeyError> {
+    fn start_untrusted_hash_tx(&self, device: &mut dyn LedgerTransport, is_new_tx: bool, inputs: &Vec<InputDetails>, tx: &Transaction, second_pass: bool) -> Result<(), HWKeyError> {
         let mut data: Vec<u8> = Vec::new();
         // needs version
         data.write_u32::<LittleEndian>(tx.version as u32)
@@ -374,7 +374,7 @@ impl BitcoinApp {
         Ok(())
     }
 
-    fn untrusted_hash_sign(&self, device: &mut dyn LedgerConnection, input: &InputDetails, locktime: u32) -> Result<Vec<u8>, HWKeyError> {
+    fn untrusted_hash_sign(&self, device: &mut dyn LedgerTransport, input: &InputDetails, locktime: u32) -> Result<Vec<u8>, HWKeyError> {
         let mut data: Vec<u8> = Vec::new();
         data.extend_from_slice(input.hd_path.to_bytes().as_slice());
         data.push(0x00); // RFU (0x00)
@@ -389,7 +389,7 @@ impl BitcoinApp {
         sendrecv(device, &apdu)
     }
 
-    fn finalize_outputs(&self, device: &mut dyn LedgerConnection, tx: &Transaction) -> Result<(), HWKeyError> {
+    fn finalize_outputs(&self, device: &mut dyn LedgerTransport, tx: &Transaction) -> Result<(), HWKeyError> {
         let mut data: Vec<u8> = Vec::new();
         data.extend_from_slice(serialize(&VarInt(tx.output.len() as u64)).as_slice());
         for output in &tx.output {
@@ -496,7 +496,7 @@ impl TryFrom<Vec<u8>> for AppVersion {
 impl LedgerApp for BitcoinApp {
     type Networks = BitcoinApps;
 
-    fn new(manager: Arc<Mutex<dyn LedgerConnection>>) -> Self {
+    fn new(manager: Arc<Mutex<dyn LedgerTransport>>) -> Self {
         BitcoinApp { ledger: manager }
     }
 
@@ -517,7 +517,7 @@ impl LedgerApp for BitcoinApp {
 
 #[cfg(test)]
 mod tests {
-    use crate::ledger::app_bitcoin::{AddressResponse, GetAddressOpts, AppVersion};
+    use crate::ledger::app::bitcoin::{AddressResponse, GetAddressOpts, AppVersion};
     use std::convert::TryFrom;
     use bitcoin::util::psbt::serialize::Serialize;
     use bitcoin::Address;

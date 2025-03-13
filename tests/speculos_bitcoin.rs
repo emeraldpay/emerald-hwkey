@@ -7,8 +7,7 @@ extern crate lazy_static;
 use hdpath::StandardHDPath;
 use log::LevelFilter;
 use simple_logger::SimpleLogger;
-use emerald_hwkey::ledger::manager::LedgerKey;
-use emerald_hwkey::ledger::app_bitcoin::{AddressResponse, GetAddressOpts, AppVersion, BitcoinApp, BitcoinApps, UnsignedInput, SignTx};
+use emerald_hwkey::ledger::app::bitcoin::{AddressResponse, GetAddressOpts, AppVersion, BitcoinApp, BitcoinApps, UnsignedInput, SignTx};
 use std::convert::TryFrom;
 use bitcoin::util::psbt::serialize::Serialize;
 use bitcoin::{Address, Network, OutPoint, Transaction, Txid, TxIn, TxOut};
@@ -17,9 +16,11 @@ use std::sync::{Arc, mpsc, Mutex};
 use std::thread;
 use std::thread::spawn;
 use std::time::Duration;
-use emerald_hwkey::ledger::traits::LedgerApp;
+use emerald_hwkey::ledger::app::LedgerApp;
 #[cfg(feature = "speculos")]
-use emerald_hwkey::ledger::speculos::{Speculos, Button};
+use emerald_hwkey::ledger::connect::speculos_api::{Speculos, Button};
+#[cfg(feature = "speculos")]
+use emerald_hwkey::ledger::connect::LedgerSpeculosKey;
 
 lazy_static! {
     static ref LOG_CONF: () = SimpleLogger::new().with_level(LevelFilter::Trace).init().unwrap();
@@ -28,7 +29,7 @@ lazy_static! {
 #[test]
 #[cfg(all(bitcoin, integration_test, feature = "speculos"))]
 pub fn is_bitcoin_open() {
-    let mut manager = LedgerKey::new().unwrap();
+    let mut manager = LedgerSpeculosKey::new().unwrap();
     manager.connect().expect("Not connected");
     let app = manager.access::<BitcoinApp>().unwrap();
     let open = app.is_open();
@@ -38,7 +39,7 @@ pub fn is_bitcoin_open() {
 #[test]
 #[cfg(all(bitcoin, integration_test, feature = "speculos"))]
 pub fn get_bitcoin_address() {
-    let mut manager = LedgerKey::new().unwrap();
+    let mut manager = LedgerSpeculosKey::new().unwrap();
     manager.connect().expect("Not connected");
     let app = manager.access::<BitcoinApp>().unwrap();
 
@@ -61,7 +62,7 @@ pub fn get_bitcoin_address() {
 #[test]
 #[cfg(all(bitcoin, integration_test, feature = "speculos"))]
 pub fn get_bitcoin_address_confirmed() {
-    let mut manager = LedgerKey::new().unwrap();
+    let mut manager = LedgerSpeculosKey::new().unwrap();
     manager.connect().expect("Not connected");
 
     let speculos = Speculos::create_env();
@@ -90,7 +91,7 @@ pub fn get_bitcoin_address_confirmed() {
 #[test]
 #[cfg(all(bitcoin, integration_test, feature = "speculos"))]
 pub fn sign_bitcoin_tx_1() {
-    let mut manager = LedgerKey::new().unwrap();
+    let mut manager = LedgerSpeculosKey::new().unwrap();
     manager.connect().expect("Not connected");
 
     let speculos = Speculos::create_env();

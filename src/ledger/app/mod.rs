@@ -1,11 +1,44 @@
-use bitcoin::secp256k1::PublicKey;
-use crate::errors::HWKeyError;
-use hdpath::{HDPath, CustomHDPath, PathValue};
-use bitcoin::util::bip32::{ExtendedPubKey, Fingerprint, ChildNumber, ChainCode};
-use crate::ledger::app_bitcoin::hash160;
-use bitcoin::Network;
-use crate::ledger::comm::LedgerConnection;
+extern crate bitcoin as bitcoin_lib;
+
 use std::sync::{Arc, Mutex};
+use bitcoin_lib::{
+    Network,
+    util::bip32::{ChainCode, ChildNumber, ExtendedPubKey, Fingerprint},
+    secp256k1::PublicKey
+};
+use hdpath::{CustomHDPath, HDPath, PathValue};
+use crate::{
+    errors::HWKeyError,
+    ledger::{
+        comm::LedgerTransport
+    }
+};
+
+// #[path="ethereum.rs"]
+pub mod ethereum;
+// #[path="bitcoin.rs"]
+pub mod bitcoin;
+
+pub use {
+    ethereum::EthereumApp,
+    bitcoin::BitcoinApp,
+};
+
+pub trait LedgerApp {
+    type Networks;
+
+    ///
+    /// Try to access a particular App on the Ledger.
+    /// Note that it's not guarantied that the app is actually launched, and it's even dangerous to try to use
+    /// commands specific for an app if it's not launched. Because same command may lead to different results with different apps
+    /// and sometimes Ledger may stuck (ex. waiting for some action that would never produced).
+    fn new(manager: Arc<Mutex<dyn LedgerTransport>>) -> Self;
+
+    ///
+    /// Get actual blockchain version available with the app.
+    /// An app may have a general type (ex. Bitcoin), but may provide access to different networks (Bitcoin Mainnet or Bitcoin Testnet)
+    fn is_open(&self) -> Option<Self::Networks>;
+}
 
 pub trait AsPubkey {
     fn as_pubkey(&self) -> &PublicKey;
@@ -38,7 +71,7 @@ pub trait PubkeyAddressApp {
             let parent_hd_path = CustomHDPath::try_new(parent_hd_path)
                 .expect("No parent HD Path");
             let parent_key = self.get_extkey_at(&parent_hd_path)?;
-            let fp = hash160(&parent_key.as_pubkey().serialize());
+            let fp = bitcoin::hash160(&parent_key.as_pubkey().serialize());
             Fingerprint::from(&fp[0..4])
         } else {
             Fingerprint::default()
@@ -47,7 +80,7 @@ pub trait PubkeyAddressApp {
         let result = ExtendedPubKey {
             network,
             depth: hd_path.len(),
-            public_key: bitcoin::secp256k1::PublicKey::from(pubkey.as_pubkey().clone()),
+            public_key: bitcoin_lib::secp256k1::PublicKey::from(pubkey.as_pubkey().clone()),
             chain_code: pubkey.as_chaincode().clone(),
             child_number: match index {
                 PathValue::Hardened(i) => ChildNumber::from_hardened_idx(i).unwrap(),
@@ -57,20 +90,4 @@ pub trait PubkeyAddressApp {
         };
         Ok(result)
     }
-}
-
-pub trait LedgerApp {
-    type Networks;
-
-    ///
-    /// Try to access a particular App on the Ledger.
-    /// Note that it's not guarantied that the app is actually launched, and it's even dangerous to try to use
-    /// commands specific for an app if it's not launched. Because same command may lead to different results with different apps
-    /// and sometimes Ledger may stuck (ex. waiting for some action that would never produced).
-    fn new(manager: Arc<Mutex<dyn LedgerConnection>>) -> Self;
-
-    ///
-    /// Get actual blockchain version available with the app.
-    /// An app may have a general type (ex. Bitcoin), but may provide access to different networks (Bitcoin Mainnet or Bitcoin Testnet)
-    fn is_open(&self) -> Option<Self::Networks>;
 }

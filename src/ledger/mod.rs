@@ -16,12 +16,6 @@ limitations under the License.
 */
 pub(crate) mod apdu;
 mod comm;
-pub mod traits;
 mod commons;
-pub mod manager;
-pub mod app_ethereum;
-pub mod app_bitcoin;
-#[cfg(feature = "speculos")]
-pub mod speculos;
-#[cfg(not(feature = "speculos"))]
-pub mod manager_mt;
+pub mod connect;
+pub mod app;

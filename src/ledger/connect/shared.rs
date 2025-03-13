@@ -5,19 +5,30 @@ use hidapi::HidDevice;
 use crate::errors::HWKeyError;
 use crate::ledger::apdu::APDU;
 use crate::ledger::comm;
-use crate::ledger::comm::{sendrecv_timeout, LedgerConnection};
-use crate::ledger::manager::{AppDetails, LedgerKey};
-use crate::ledger::traits::LedgerApp;
+use crate::ledger::comm::{sendrecv_timeout, LedgerTransport};
+use crate::ledger::connect::direct::{AppDetails, LedgerHidKey};
 use std::convert::TryFrom;
+use std::marker::PhantomData;
 use log;
+use crate::ledger::connect::LedgerKey;
+#[cfg(feature = "speculos")]
+use crate::ledger::connect::speculos::LedgerSpeculosKey;
 
-static INSTANCE: OnceLock<LedgerKeyShared> = OnceLock::new();
-static INSTANCE_LOCKED: OnceLock<Arc<Mutex<LedgerKeyShared>>> = OnceLock::new();
+static INSTANCE: OnceLock<LedgerKeyShared<LedgerHidKey>> = OnceLock::new();
 
-#[derive(Clone)]
-pub struct LedgerKeyShared {
+#[cfg(feature = "speculos")]
+static INSTANCE_SPECULOS: OnceLock<LedgerKeyShared<LedgerSpeculosKey>> = OnceLock::new();
+
+pub struct LedgerKeyShared<LK: LedgerKey> {
+    t: PhantomData<LK>,
     channel: Sender<Command>,
     state: Arc<RwLock<State>>,
+}
+
+impl<LK: LedgerKey> Clone for LedgerKeyShared<LK> {
+    fn clone(&self) -> Self {
+        Self { t: self.t.clone(), channel: self.channel.clone(), state: self.state.clone() }
+    }
 }
 
 enum Command {
@@ -36,18 +47,12 @@ enum State {
     Stopped,
 }
 
-///
-/// An instance of LedgerKey that can be safely used between different threads because it opens the device and executes all commands in its own thread.
-/// This is important on macOS where the HID device is not thread safe (and sometimes it even needs to "sleep" between uses from different threads,
-/// so a Mutex doesn't always help), and when a HID device is used improperly it could panic with SIGILL.
-///
-impl LedgerKeyShared {
-
+impl LedgerKeyShared<LedgerHidKey> {
     ///
     /// Get (or create on the first call) a shared instance to access LedgerKey
-    pub fn instance() -> Result<LedgerKeyShared, HWKeyError> {
+    pub fn instance() -> Result<LedgerKeyShared<LedgerHidKey>, HWKeyError> {
         let instance = INSTANCE.get_or_init(|| {
-            let value = Self::new();
+            let mut value = Self::new();
             let connected = value.connect();
             if connected.is_ok() {
                 let _ = comm::ping(&value);
@@ -55,18 +60,40 @@ impl LedgerKeyShared {
             value
         });
 
-        let _locked = INSTANCE_LOCKED.get_or_init(|| {
-            Arc::new(Mutex::new(instance.clone()))
+        Ok(instance.clone())
+    }
+}
+
+#[cfg(feature = "speculos")]
+impl LedgerKeyShared<LedgerSpeculosKey> {
+    ///
+    /// Get (or create on the first call) a shared instance to access LedgerKey
+    pub fn instance() -> Result<LedgerKeyShared<LedgerSpeculosKey>, HWKeyError> {
+        let instance = INSTANCE_SPECULOS.get_or_init(|| {
+            let mut value = Self::new();
+            let connected = value.connect();
+            if connected.is_ok() {
+                let _ = comm::ping(&value);
+            }
+            value
         });
 
         Ok(instance.clone())
     }
+}
+
+///
+/// An instance of LedgerKey that can be safely used between different threads because it opens the device and executes all commands in its own thread.
+/// This is important on macOS where the HID device is not thread safe (and sometimes it even needs to "sleep" between uses from different threads,
+/// so a Mutex doesn't always help), and when a HID device is used improperly it could panic with SIGILL.
+///
+impl<LK: LedgerKey> LedgerKeyShared<LK> {
 
     fn new() -> Self {
         let (tx, rx) = channel();
         let state = Arc::new(RwLock::new(State::Init));
         Self::run(rx, state.clone());
-        Self { channel: tx, state }
+        Self { t: PhantomData::default(), channel: tx, state }
     }
 
     fn is_working(&self) -> bool {
@@ -86,7 +113,7 @@ impl LedgerKeyShared {
         Ok(())
     }
 
-    fn try_connect(&self) -> Result<(), HWKeyError> {
+    fn try_connect(&mut self) -> Result<(), HWKeyError> {
         {
             let r = self.state.read().unwrap();
             if *r != State::Disconnected {
@@ -96,23 +123,10 @@ impl LedgerKeyShared {
         self.connect()
     }
 
-    pub fn connect(&self) -> Result<(), HWKeyError> {
-        let (tx, rx) = channel();
-        if let Err(e) = self.channel.send(Command::Connect(tx)) {
-            log::error!("Error sending command: {:?}", e);
-            return Err(HWKeyError::Unavailable)
-        }
-        rx.recv().unwrap_or_else(|e| {
-            log::error!("Error receiving response: {:?}", e);
-            Err(HWKeyError::Unavailable)
-        })
-    }
-
     pub fn is_connected(&self) -> bool {
         if self.ensure_working().is_err() {
             return false
         }
-        let _ = self.try_connect();
         let (tx, rx) = channel();
         if let Err(e) = self.channel.send(Command::HaveDevice(tx)) {
             log::error!("Error sending command: {:?}", e);
@@ -125,31 +139,9 @@ impl LedgerKeyShared {
         }
     }
 
-    pub fn get_app_details(&self) -> Result<AppDetails, HWKeyError> {
-        self.ensure_working()?;
-        let _ = self.try_connect();
-
-        let apdu = APDU {
-            cla: 0xb0,
-            ins: 0x01,
-            ..APDU::default()
-        };
-        match sendrecv_timeout(self, &apdu, 1000) {
-            Err(e) => match e {
-                HWKeyError::EmptyResponse => Ok(AppDetails::default()),
-                _ => Err(e),
-            }
-            Ok(resp) => AppDetails::try_from(resp)
-        }
-    }
-
-    pub fn access<T: LedgerApp>(&self) -> Result<T, HWKeyError> {
-        Ok(T::new(INSTANCE_LOCKED.get().unwrap().clone()))
-    }
-
     fn run(channel: Receiver<Command>, state: Arc<RwLock<State>>) {
         thread::spawn( move || {
-            let ledger = LedgerKey::new();
+            let ledger = LedgerHidKey::new();
             if let Err(e) = ledger {
                 {
                     let mut w = state.write().unwrap();
@@ -253,9 +245,51 @@ impl LedgerKeyShared {
     }
 }
 
-impl LedgerConnection for LedgerKeyShared {
+impl<LK: LedgerKey> LedgerKey for LedgerKeyShared<LK> {
+    type Transport = Self;
+
+    fn create() -> Result<Self, HWKeyError> {
+        panic!("Not implemented")
+    }
+
+    fn connect(&mut self) -> Result<(), HWKeyError> {
+        let (tx, rx) = channel();
+        if let Err(e) = self.channel.send(Command::Connect(tx)) {
+            log::error!("Error sending command: {:?}", e);
+            return Err(HWKeyError::Unavailable)
+        }
+        rx.recv().unwrap_or_else(|e| {
+            log::error!("Error receiving response: {:?}", e);
+            Err(HWKeyError::Unavailable)
+        })
+    }
+
+    fn get_app_details(&self) -> Result<AppDetails, HWKeyError> {
+        self.ensure_working()?;
+
+        let apdu = APDU {
+            cla: 0xb0,
+            ins: 0x01,
+            ..APDU::default()
+        };
+        match sendrecv_timeout(self, &apdu, 1000) {
+            Err(e) => match e {
+                HWKeyError::EmptyResponse => Ok(AppDetails::default()),
+                _ => Err(e),
+            }
+            Ok(resp) => AppDetails::try_from(resp)
+        }
+    }
+
+    fn open_exclusive(&self) -> Result<Arc<Mutex<Self::Transport>>, HWKeyError> {
+        //TODO have a single instance as a field
+        Ok(Arc::new(Mutex::new(self.clone())))
+    }
+}
+
+impl<LK: LedgerKey> LedgerTransport for LedgerKeyShared<LK> {
     fn write(&self, data: &[u8]) -> Result<usize, HWKeyError> {
-        self.try_connect()?;
+        self.ensure_working()?;
         let (tx, rx) = channel();
         if let Err(e) = self.channel.send(Command::Write(data.to_vec(), tx)) {
             log::warn!("Error sending command: {:?}", e);
@@ -271,7 +305,7 @@ impl LedgerConnection for LedgerKeyShared {
         self.read_timeout(buf, -1)
     }
     fn read_timeout(&self, buf: &mut [u8], timeout_ms: i32) -> Result<usize, HWKeyError> {
-        self.try_connect()?;
+        self.ensure_working()?;
         if buf.len() < comm::HID_RPT_SIZE {
             log::error!("Buffer is too small");
             return Err(HWKeyError::CommError("Buffer is too small".to_string()))

@@ -18,7 +18,6 @@ limitations under the License.
 //!
 
 use hex;
-use hidapi::HidDevice;
 use log;
 use std::{cmp::min, mem::size_of_val, slice};
 use crate::errors::HWKeyError;
@@ -125,31 +124,13 @@ pub fn sw_to_error(sw_h: u8, sw_l: u8) -> Result<(), HWKeyError> {
     }
 }
 
-pub trait LedgerConnection {
+pub trait LedgerTransport {
     fn write(&self, data: &[u8]) -> Result<usize, HWKeyError>;
     fn read(&self, buf: &mut [u8]) -> Result<usize, HWKeyError>;
     fn read_timeout(&self, buf: &mut [u8], timeout_ms: i32) -> Result<usize, HWKeyError>;
 }
 
-#[cfg(not(feature = "speculos"))]
-impl LedgerConnection for HidDevice {
-    fn write(&self, data: &[u8]) -> Result<usize, HWKeyError> {
-        HidDevice::write(self, data)
-            .map_err(|e| HWKeyError::CommError(format!("{}", e)))
-    }
-
-    fn read(&self, buf: &mut [u8]) -> Result<usize, HWKeyError> {
-        HidDevice::read(self, buf)
-            .map_err(|e| HWKeyError::CommError(format!("{}", e)))
-    }
-
-    fn read_timeout(&self, buf: &mut [u8], timeout_ms: i32) -> Result<usize, HWKeyError> {
-        HidDevice::read_timeout(self, buf, timeout_ms)
-            .map_err(|e| HWKeyError::CommError(format!("{}", e)))
-    }
-}
-
-pub fn send(dev: &dyn LedgerConnection, apdu: &APDU) -> Result<(), HWKeyError> {
+pub fn send(dev: &dyn LedgerTransport, apdu: &APDU) -> Result<(), HWKeyError> {
     let mut frame_index: usize = 0;
     let mut data_itr = apdu.data.iter();
     let mut init_sent = false;
@@ -183,7 +164,7 @@ pub fn send(dev: &dyn LedgerConnection, apdu: &APDU) -> Result<(), HWKeyError> {
     Ok(())
 }
 
-pub fn recv_direct(dev: &dyn LedgerConnection, timeout: i32) -> Result<Vec<u8>, HWKeyError> {
+pub fn recv_direct(dev: &dyn LedgerTransport, timeout: i32) -> Result<Vec<u8>, HWKeyError> {
     let mut frame_index: usize = 0;
     let channel = 0x101;
 
@@ -235,7 +216,7 @@ pub fn recv_direct(dev: &dyn LedgerConnection, timeout: i32) -> Result<Vec<u8>, 
     Ok(data)
 }
 
-pub fn recv(dev: &dyn LedgerConnection, timeout: i32) -> Result<Vec<u8>, HWKeyError> {
+pub fn recv(dev: &dyn LedgerTransport, timeout: i32) -> Result<Vec<u8>, HWKeyError> {
     let mut data = recv_direct(dev, timeout)?;
     match sw_to_error(data.pop().unwrap(), data.pop().unwrap()) {
         Ok(_) => Ok(data),
@@ -244,19 +225,19 @@ pub fn recv(dev: &dyn LedgerConnection, timeout: i32) -> Result<Vec<u8>, HWKeyEr
 }
 
 ///
-pub fn sendrecv(dev: &dyn LedgerConnection, apdu: &APDU) -> Result<Vec<u8>, HWKeyError> {
+pub fn sendrecv(dev: &dyn LedgerTransport, apdu: &APDU) -> Result<Vec<u8>, HWKeyError> {
     send(dev, apdu)?;
     recv(dev, -1)
 }
 
-pub fn sendrecv_timeout(dev: &dyn LedgerConnection, apdu: &APDU, timeout: i32) -> Result<Vec<u8>, HWKeyError> {
+pub fn sendrecv_timeout(dev: &dyn LedgerTransport, apdu: &APDU, timeout: i32) -> Result<Vec<u8>, HWKeyError> {
     send(dev, apdu)?;
     recv(dev, timeout)
 }
 
 /// Ping Ledger device, returns `Ok(true)` if available. `Ok(false)` is unavailable (i.e., ping
 /// response is not zero). Or `Err` if failed to connect
-pub fn ping(dev: &dyn LedgerConnection) -> Result<bool, HWKeyError> {
+pub fn ping(dev: &dyn LedgerTransport) -> Result<bool, HWKeyError> {
     let mut frame: [u8; (HID_RPT_SIZE + 1) as usize] = [0; (HID_RPT_SIZE + 1) as usize];
     let channel: u16 = 0x101;
     frame[1] = (channel >> 8) as u8;

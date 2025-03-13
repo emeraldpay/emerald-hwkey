@@ -10,23 +10,27 @@ extern crate simple_logger;
 #[macro_use]
 extern crate lazy_static;
 
-use std::{fs};
-use hdpath::{StandardHDPath, AccountHDPath};
+use std::thread;
+use std::time::Duration;
+use std::fs;
+use hdpath::StandardHDPath;
 use hex;
 use log::LevelFilter;
 use simple_logger::SimpleLogger;
 use std::convert::TryFrom;
-use emerald_hwkey::{
-    ledger::{
-        manager::LedgerKey,
-        app_ethereum::{EthereumApp, AddressResponse},
-    }
+use emerald_hwkey::ledger::{
+    app::ethereum::{AddressResponse, EthereumApp},
+    connect::LedgerKey,
 };
 use std::str::FromStr;
-use emerald_hwkey::ledger::traits::{PubkeyAddressApp, LedgerApp};
-use bitcoin::Network;
+use emerald_hwkey::ledger::app::LedgerApp;
+use emerald_hwkey::ledger::app::ethereum::EthereumApps;
+use emerald_hwkey::ledger::connect::direct::LedgerHidKey;
+use emerald_hwkey::ledger::connect::LedgerKeyShared;
+use crate::emerald_hwkey::ledger::app::PubkeyAddressApp;
 use bitcoin::util::bip32::ExtendedPubKey;
-use emerald_hwkey::ledger::app_ethereum::EthereumApps;
+use bitcoin::Network;
+use hdpath::AccountHDPath;
 
 lazy_static! {
     static ref LOG_CONF: () = SimpleLogger::new().with_level(LevelFilter::Trace).init().unwrap();
@@ -65,7 +69,8 @@ fn read_test_txes() -> Vec<TestTx> {
 #[test]
 #[cfg(ledger_ethereum)]
 pub fn get_ethereum_address() {
-    let mut manager = LedgerKey::new().unwrap();
+    thread::sleep(Duration::from_millis(2000));
+    let mut manager = LedgerHidKey::new().unwrap();
     manager.connect().expect("Not connected");
     let app = manager.access::<EthereumApp>().unwrap();
 
@@ -103,7 +108,8 @@ pub fn sign_1kovan_to_78296f10() {
 pub fn get_xpub_0() {
     SimpleLogger::new().with_level(LevelFilter::Trace).init().unwrap();
 
-    let mut manager = LedgerKey::new().unwrap();
+    thread::sleep(Duration::from_millis(2500));
+    let mut manager = LedgerHidKey::new().unwrap();
     manager.connect().expect("Not connected");
     let app = manager.access::<EthereumApp>().unwrap();
 
@@ -120,7 +126,8 @@ pub fn get_xpub_0() {
 pub fn get_xpub_etc_1() {
     SimpleLogger::new().with_level(LevelFilter::Trace).init().unwrap();
 
-    let mut manager = LedgerKey::new().unwrap();
+    thread::sleep(Duration::from_millis(2000));
+    let mut manager = LedgerHidKey::new().unwrap();
     manager.connect().expect("Not connected");
     let app = manager.access::<EthereumApp>().unwrap();
 
@@ -135,7 +142,8 @@ pub fn get_xpub_etc_1() {
 #[test]
 #[cfg(ledger_ethereum)]
 pub fn is_ethereum_open() {
-    let mut manager = LedgerKey::new().unwrap();
+    thread::sleep(Duration::from_millis(2000));
+    let mut manager = LedgerHidKey::new().unwrap();
     manager.connect().expect("Not connected");
     let app = manager.access::<EthereumApp>().unwrap();
     let open = app.is_open();
@@ -145,7 +153,8 @@ pub fn is_ethereum_open() {
 #[test]
 #[cfg(all(integration_test, not(ledger_ethereum)))]
 pub fn is_ethereum_closed() {
-    let mut manager = LedgerKey::new().unwrap();
+    thread::sleep(Duration::from_millis(2000));
+    let mut manager = LedgerHidKey::new().unwrap();
     manager.connect().expect("Not connected");
     let app = manager.access::<EthereumApp>().unwrap();
     let open = app.is_open();
@@ -155,7 +164,8 @@ pub fn is_ethereum_closed() {
 #[test]
 #[cfg(ledger_ethereum_classic)]
 pub fn is_ethereum_classic_open() {
-    let mut manager = LedgerKey::new().unwrap();
+    thread::sleep(Duration::from_millis(2000));
+    let mut manager = LedgerHidKey::new().unwrap();
     manager.connect().expect("Not connected");
     let app = manager.access::<EthereumApp>().unwrap();
     let open = app.is_open();
@@ -165,7 +175,8 @@ pub fn is_ethereum_classic_open() {
 #[test]
 #[cfg(all(integration_test, not(ledger_ethereum_classic)))]
 pub fn is_ethereum_classic_closed() {
-    let mut manager = LedgerKey::new().unwrap();
+    thread::sleep(Duration::from_millis(2000));
+    let mut manager = LedgerHidKey::new().unwrap();
     manager.connect().expect("Not connected");
     let app = manager.access::<EthereumApp>().unwrap();
     let open = app.is_open();
@@ -175,7 +186,8 @@ pub fn is_ethereum_classic_closed() {
 // ------ internal
 
 fn internal_tx_sign(exp: &TestTx) {
-    let mut manager = LedgerKey::new().unwrap();
+    thread::sleep(Duration::from_millis(2000));
+    let mut manager = LedgerHidKey::new().unwrap();
     manager.connect().expect("Not connected");
     let app = manager.access::<EthereumApp>().unwrap();
 

@@ -2,7 +2,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use ureq::post;
 use crate::errors::HWKeyError;
-use crate::ledger::comm::LedgerConnection;
+use crate::ledger::comm::LedgerTransport;
 use std::env;
 use std::sync::{Arc, Mutex};
 
@@ -214,7 +214,7 @@ impl Default for Speculos {
     }
 }
 
-impl LedgerConnection for Speculos {
+impl LedgerTransport for Speculos {
     fn write(&self, data: &[u8]) -> Result<usize, HWKeyError> {
         let mut state = self.state.lock().unwrap();
         //-----

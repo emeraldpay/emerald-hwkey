@@ -18,6 +18,12 @@ Rust library to access Hardware Keys for Cryptocurrency.
 
 Get App Ledger App emulator from: https://github.com/LedgerHQ/speculos
 
+.For Docker:
+----
+docker pull ghcr.io/ledgerhq/speculos
+docker image tag ghcr.io/ledgerhq/speculos speculos
+----
+
 The Speculos app is initialized with the following seed by default:
 ----
 glory   promote mansion idle        axis    finger   extra   february
@@ -29,7 +35,7 @@ seven   myth    punch   hobby       comfort wild    raise   skin
 
 .Run it in docker as:
 ----
-docker run --rm -it -p 5000:5000  speculos --display headless apps/btc.elf
+docker run --rm -it -p 8080:5000  speculos --display headless apps/btc.elf
 ----
 
 .Run tests:
@@ -41,7 +47,7 @@ EMRLD_HWKEY_TEST=bitcoin cargo test --test speculos_bitcoin --features "speculos
 
 .Run Speculos Docker with NanoX app:
 ----
-docker run --rm -it -v $(pwd)/testdata/ledger-elf:/speculos/apps -p 6000:5000  speculos --model nanox --display headless apps/ethereum-nanox-2.0.2-1.9.18.elf
+docker run --rm -it -v $(pwd)/testdata/ledger-elf:/speculos/apps -p 8080:5000  speculos --model nanox --display headless apps/ethereum-nanox-2.0.2-1.9.18.elf
 ----
 
 .Run tests:

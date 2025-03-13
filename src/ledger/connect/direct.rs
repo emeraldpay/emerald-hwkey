@@ -18,22 +18,22 @@ limitations under the License.
 //! # Module to work with `Ledger hardware Wallets`
 //!
 use crate::{
+    errors::HWKeyError,
     ledger::{
         apdu::APDU,
         comm::ping, comm::sendrecv_timeout
     },
-    errors::HWKeyError,
 };
-use hidapi::{HidApi, HidDevice, DeviceInfo};
+use hidapi::{DeviceInfo, HidApi, HidDevice};
 use std::{
+    sync::{Arc, Mutex},
     thread,
-    time,
-    sync::{Arc, Mutex}
+    time
 };
-use std::ops::Deref;
 use std::convert::TryFrom;
 use crate::errors::ResponseError;
-use crate::ledger::traits::LedgerApp;
+use crate::ledger::comm::LedgerTransport;
+use crate::ledger::connect::LedgerKey;
 
 pub const CHUNK_SIZE: usize = 255;
 
@@ -113,42 +113,30 @@ impl From<DeviceInfo> for Device {
 }
 
 /// `Wallet Manager` to handle all interaction with HD wallet
-pub struct LedgerKey {
+pub struct LedgerHidKey {
     /// HID point used for communication
-    #[cfg(not(feature = "speculos"))]
     hid: Arc<Mutex<HidApi>>,
 
-    #[cfg(feature = "speculos")]
-    speculos: Arc<Mutex<crate::ledger::speculos::Speculos>>,
     /// List of available wallets
     device: Option<Device>,
 }
 
-impl LedgerKey {
+///
+/// A direct connection to a Ledger Key connected via USB (using HID protocol).
+///
+/// WARNING: On macOS connection cannon be used from different threads, even two different instances of the `LedgerHidKey` should not be used.
+/// For a shared instance use [crate::ledger::connect::LedgerKeyShared].
+impl LedgerHidKey {
 
     /// Create new `Ledger Key Manager`
     /// Make sure you have only one instance at a time, because when it's created it locks HID API to the instance.
-    #[cfg(not(feature = "speculos"))]
-    pub fn new() -> Result<LedgerKey, HWKeyError> {
-        let hid = HidApi::new_without_enumerate()
-            .map_err(|_| HWKeyError::CommError("HID API is not available".to_string()))?;
-        Ok(Self {
-            hid: Arc::new(Mutex::new(hid)),
-            device: None,
-        })
-    }
-
-    #[cfg(feature = "speculos")]
-    pub fn new() -> Result<LedgerKey, HWKeyError> {
-        Ok(Self {
-            device: None,
-            speculos: Arc::new(Mutex::new(crate::ledger::speculos::Speculos::create_env())),
-        })
+    pub fn new() -> Result<Self, HWKeyError> {
+        Self::create()
     }
 
     /// Create new `Ledger Key Manager` and try to connect to actual ledger. Return error otherwise.
-    pub fn new_connected() -> Result<LedgerKey, HWKeyError> {
-        let mut instance = LedgerKey::new()?;
+    pub fn new_connected() -> Result<LedgerHidKey, HWKeyError> {
+        let mut instance = LedgerHidKey::new()?;
         instance.connect()?;
         Ok(instance)
     }
@@ -161,91 +149,10 @@ impl LedgerKey {
             .collect()
     }
 
-    #[cfg(not(feature = "speculos"))]
     pub fn have_device(&self) -> bool {
         self.device.is_some()
     }
 
-    #[cfg(feature = "speculos")]
-    pub fn have_device(&self) -> bool {
-        let conn = self.open();
-        if conn.is_err() {
-            return false
-        }
-        let conn = conn.unwrap();
-        let conn = conn.lock();
-        if conn.is_err() {
-            return false
-        }
-        let conn = conn.unwrap();
-        if let Ok(avail) = conn.is_available() {
-            avail
-        } else {
-            false
-        }
-    }
-
-    /// Update device list
-    #[cfg(not(feature = "speculos"))]
-    pub fn connect(&mut self) -> Result<(), HWKeyError> {
-        let current = {
-            let mut hid = self.hid.lock()
-                .map_err(|_| HWKeyError::CommError("HID API is locked".to_string()))?;
-
-            hid.refresh_devices()
-                .map_err(|_| HWKeyError::CommError("Failed to refresh".to_string()))?;
-
-            let device = hid.device_list().find(|hid_info| {
-                trace!("device {:?}", hid_info);
-                hid_info.vendor_id() == LEDGER_VID
-                    && (hid_info.product_id() == LEDGER_S_PID_1
-                    || hid_info.product_id() == LEDGER_S_PID_2
-                    || hid_info.product_id() == LEDGER_S_PID_3
-                    || hid_info.product_id() == LEDGER_X_PID_1
-                    || hid_info.product_id() == LEDGER_X_PID_2
-                    || hid_info.product_id() == LEDGER_X_PID_3
-                    || hid_info.product_id() == LEDGER_X_PID_4)
-            }).map(|hid_info| hid_info.clone());
-
-            device
-        };
-
-        if current.is_none() {
-            debug!("No device connected");
-            self.device = None;
-
-            return Err(HWKeyError::Unavailable);
-        }
-
-        let hid_info = current.unwrap();
-        let d = Device::from(hid_info);
-        self.device = Some(d);
-
-        Ok(())
-    }
-
-    #[cfg(feature = "speculos")]
-    pub fn connect(&mut self) -> Result<(), HWKeyError> {
-        let conn = self.open();
-        if conn.is_err() {
-            return Err(HWKeyError::Unavailable)
-        }
-        let conn = conn.unwrap();
-        let conn = conn.lock();
-        if conn.is_err() {
-            return Err(HWKeyError::Unavailable)
-        }
-        let conn = conn.unwrap();
-
-        let connected = conn.is_available()?;
-        if connected {
-            Ok(())
-        } else {
-            Err(HWKeyError::Unavailable)
-        }
-    }
-
-    #[cfg(not(feature = "speculos"))]
     pub(crate) fn device(&self) -> Result<HidDevice, HWKeyError> {
         match &self.device {
             None => Err(HWKeyError::Unavailable),
@@ -254,60 +161,6 @@ impl LedgerKey {
                 hid.open(target.hid_info.vendor_id(), target.hid_info.product_id())
                     .map_err(|_| HWKeyError::CommError("Failed to open device".to_string()))
             }
-        }
-    }
-
-    #[cfg(not(feature = "speculos"))]
-    pub fn open(&self) -> Result<Arc<Mutex<HidDevice>>, HWKeyError> {
-        // up to 10 tries, starting from 50ms increasing by 25ms, in total 19250ms max
-        let mut retry_delay = 50;
-        for _ in 0..11 {
-            {
-                //
-                //serial number is always 0001
-                let mut h = self.device()?;
-                match ping(&mut h) {
-                    Ok(v) => {
-                        if v {
-                            //
-                            // HidDevice keeps a lock of the HidApi so it should be ok to give a Mutex over the HidDevice itself
-                            //
-                            return Ok(Arc::new(Mutex::new(h)));
-                        }
-                    }
-                    Err(_) => {}
-                }
-            }
-            thread::sleep(time::Duration::from_millis(retry_delay));
-            retry_delay += 25;
-        }
-        // used by another application
-        Err(HWKeyError::CommError("Device is locked by another application".to_string()))
-    }
-
-    #[cfg(feature = "speculos")]
-    pub fn open(&self) -> Result<Arc<Mutex<crate::ledger::speculos::Speculos>>, HWKeyError> {
-        Ok(self.speculos.clone())
-    }
-
-    ///
-    /// Get information about the currently running app on Ledger
-    /// If no app is running it produces the same info from the OS.
-    pub fn get_app_details(&self) -> Result<AppDetails, HWKeyError> {
-        let apdu = APDU {
-            cla: 0xb0,
-            ins: 0x01,
-            ..APDU::default()
-        };
-        let device = self.open()?;
-        let mut conn = device.lock()
-            .map_err(|_| HWKeyError::Unavailable)?;
-        match sendrecv_timeout(&mut *conn, &apdu, 100) {
-            Err(e) => match e {
-                HWKeyError::EmptyResponse => Ok(AppDetails::default()),
-                _ => Err(e),
-            }
-            Ok(resp) => AppDetails::try_from(resp)
         }
     }
 
@@ -320,18 +173,11 @@ impl LedgerKey {
             ins: 0x01,
             ..APDU::default()
         };
-        let device = self.open()?;
+        let device = self.open_exclusive()?;
         let mut conn = device.lock()
             .map_err(|_| HWKeyError::Unavailable)?;
         let resp = sendrecv_timeout(&mut *conn, &apdu, 100)?;
         LedgerDetails::try_from(resp)
-    }
-
-    ///
-    /// Access a particular type of app. Please ensure that the app is actually launched with [get_app_details] before accessing it.
-    pub fn access<T: LedgerApp>(&self) -> Result<T, HWKeyError> {
-        let conn = self.open()?;
-        Ok(T::new(conn))
     }
 
 }
@@ -390,6 +236,101 @@ impl TryFrom<Vec<u8>> for AppDetails {
     }
 }
 
+impl LedgerKey for LedgerHidKey {
+    type Transport = HidDevice;
+
+    fn create() -> Result<Self, HWKeyError> {
+        let hid = HidApi::new_without_enumerate()
+            .map_err(|_| HWKeyError::CommError("HID API is not available".to_string()))?;
+        Ok(Self {
+            hid: Arc::new(Mutex::new(hid)),
+            device: None,
+        })
+    }
+
+    fn connect(&mut self) -> Result<(), HWKeyError> {
+        let current = {
+            let mut hid = self.hid.lock()
+                .map_err(|_| HWKeyError::CommError("HID API is locked".to_string()))?;
+
+            hid.refresh_devices()
+                .map_err(|_| HWKeyError::CommError("Failed to refresh".to_string()))?;
+
+            let device = hid.device_list().find(|hid_info| {
+                trace!("device {:?}", hid_info);
+                hid_info.vendor_id() == LEDGER_VID
+                    && (hid_info.product_id() == LEDGER_S_PID_1
+                    || hid_info.product_id() == LEDGER_S_PID_2
+                    || hid_info.product_id() == LEDGER_S_PID_3
+                    || hid_info.product_id() == LEDGER_X_PID_1
+                    || hid_info.product_id() == LEDGER_X_PID_2
+                    || hid_info.product_id() == LEDGER_X_PID_3
+                    || hid_info.product_id() == LEDGER_X_PID_4)
+            }).map(|hid_info| hid_info.clone());
+
+            device
+        };
+
+        if current.is_none() {
+            debug!("No device connected");
+            self.device = None;
+
+            return Err(HWKeyError::Unavailable);
+        }
+
+        let hid_info = current.unwrap();
+        let d = Device::from(hid_info);
+        self.device = Some(d);
+
+        Ok(())
+    }
+
+    fn open_exclusive(&self) -> Result<Arc<Mutex<HidDevice>>, HWKeyError> {
+        // up to 10 tries, starting from 50ms increasing by 25ms, in total 19250ms max
+        let mut retry_delay = 50;
+        for _ in 0..11 {
+            {
+                //
+                //serial number is always 0001
+                let mut h = self.device()?;
+                match ping(&mut h) {
+                    Ok(v) => {
+                        if v {
+                            //
+                            // HidDevice keeps a lock of the HidApi so it should be ok to give a Mutex over the HidDevice itself
+                            //
+                            return Ok(Arc::new(Mutex::new(h)));
+                        }
+                    }
+                    Err(_) => {}
+                }
+            }
+            thread::sleep(time::Duration::from_millis(retry_delay));
+            retry_delay += 25;
+        }
+        // used by another application
+        Err(HWKeyError::CommError("Device is locked by another application".to_string()))
+    }
+
+}
+
+impl LedgerTransport for HidDevice {
+    fn write(&self, data: &[u8]) -> Result<usize, HWKeyError> {
+        HidDevice::write(self, data)
+            .map_err(|e| HWKeyError::CommError(format!("{}", e)))
+    }
+
+    fn read(&self, buf: &mut [u8]) -> Result<usize, HWKeyError> {
+        HidDevice::read(self, buf)
+            .map_err(|e| HWKeyError::CommError(format!("{}", e)))
+    }
+
+    fn read_timeout(&self, buf: &mut [u8], timeout_ms: i32) -> Result<usize, HWKeyError> {
+        HidDevice::read_timeout(self, buf, timeout_ms)
+            .map_err(|e| HWKeyError::CommError(format!("{}", e)))
+    }
+}
+
 impl TryFrom<Vec<u8>> for LedgerDetails {
 
     type Error = HWKeyError;
@@ -417,16 +358,11 @@ impl TryFrom<Vec<u8>> for LedgerDetails {
 #[cfg(test)]
 #[allow(unused_imports)]
 mod tests {
-    use crate::ledger::{
-        manager::{LedgerKey, AppDetails},
-        apdu::{ApduBuilder, APDU},
-        comm::{sendrecv}
-    };
     use core::convert::TryFrom;
-    use log::Level;
-    use crate::ledger::manager::LedgerDetails;
-    use crate::ledger::manager::read_string;
-    use crate::ledger::manager::read_slice;
+    use crate::ledger::connect::direct::AppDetails;
+    use crate::ledger::connect::direct::LedgerDetails;
+    use crate::ledger::connect::direct::read_string;
+    use crate::ledger::connect::direct::read_slice;
 
     #[test]
     pub fn can_read_string() {
@@ -547,13 +483,13 @@ mod tests {
     /// Just for testing the responses from an actual device
     pub fn check_app_version() {
         simple_logger::init_with_level(Level::Trace).unwrap();
-        let mut manager = LedgerKey::new_connected().unwrap();
+        let mut manager = LedgerHidKey::new_connected().unwrap();
         let apdu = APDU {
             cla: 0xb0,
             ins: 0x01,
             ..APDU::default()
         };
-        let device = manager.open()
+        let device = manager.open_exclusive()
             .expect("Cannot open");
         let mut device = device.lock().unwrap();
 

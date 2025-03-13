@@ -55,5 +55,5 @@ docker run --rm -it -v $(pwd)/testdata/ledger-elf:/speculos/apps -p 5001:5000 sp
 
 == NOT A PART OF THE PROJECT
 
-Files in this directory are not part of the Emerald HHkey project and put here only for reference.
+Files in this directory are not part of the Emerald HWKey project and put here only for reference.
 It's not covered by lib's licence, bug bounty or any other arrangement related to the Emerald HWKey library.

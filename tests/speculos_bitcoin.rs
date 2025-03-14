@@ -1,5 +1,6 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
+#![cfg(all(integration_test, test_bitcoin, feature = "speculos"))]
 
 #[macro_use]
 extern crate lazy_static;
@@ -17,9 +18,7 @@ use std::thread;
 use std::thread::spawn;
 use std::time::Duration;
 use emerald_hwkey::ledger::app::LedgerApp;
-#[cfg(feature = "speculos")]
 use emerald_hwkey::ledger::connect::speculos_api::{Speculos, Button};
-#[cfg(feature = "speculos")]
 use emerald_hwkey::ledger::connect::LedgerSpeculosKey;
 
 lazy_static! {
@@ -27,7 +26,6 @@ lazy_static! {
 }
 
 #[test]
-#[cfg(all(bitcoin, integration_test, feature = "speculos"))]
 pub fn is_bitcoin_open() {
     let mut manager = LedgerSpeculosKey::new().unwrap();
     manager.connect().expect("Not connected");
@@ -37,7 +35,6 @@ pub fn is_bitcoin_open() {
 }
 
 #[test]
-#[cfg(all(bitcoin, integration_test, feature = "speculos"))]
 pub fn get_bitcoin_address() {
     let mut manager = LedgerSpeculosKey::new().unwrap();
     manager.connect().expect("Not connected");
@@ -60,7 +57,6 @@ pub fn get_bitcoin_address() {
 }
 
 #[test]
-#[cfg(all(bitcoin, integration_test, feature = "speculos"))]
 pub fn get_bitcoin_address_confirmed() {
     let mut manager = LedgerSpeculosKey::new().unwrap();
     manager.connect().expect("Not connected");
@@ -89,7 +85,6 @@ pub fn get_bitcoin_address_confirmed() {
 }
 
 #[test]
-#[cfg(all(bitcoin, integration_test, feature = "speculos"))]
 pub fn sign_bitcoin_tx_1() {
     let mut manager = LedgerSpeculosKey::new().unwrap();
     manager.connect().expect("Not connected");

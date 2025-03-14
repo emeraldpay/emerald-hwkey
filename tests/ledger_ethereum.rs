@@ -1,5 +1,6 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
+#![cfg(all(integration_test, test_ethereum))]
 
 extern crate emerald_hwkey;
 #[macro_use]
@@ -66,125 +67,6 @@ fn read_test_txes() -> Vec<TestTx> {
     result
 }
 
-#[test]
-#[cfg(ledger_ethereum)]
-pub fn get_ethereum_address() {
-    thread::sleep(Duration::from_millis(2000));
-    let mut manager = LedgerHidKey::new().unwrap();
-    manager.connect().expect("Not connected");
-    let app = manager.access::<EthereumApp>().unwrap();
-
-    let addresses = read_test_addresses();
-    for address in addresses {
-        let hdpath = StandardHDPath::try_from(address.hdpath.as_str()).expect("Invalid HDPath");
-        let act = app.get_address(&hdpath, false).unwrap();
-        assert_eq!(act.address, address.address);
-    }
-}
-
-#[test]
-#[cfg(ledger_ethereum)]
-pub fn sign_1eth_to_78296f10() {
-    let test_txes = read_test_txes();
-    internal_tx_sign(&test_txes[0]);
-}
-
-#[test]
-#[cfg(ledger_ethereum_classic)]
-pub fn sign_1etc_to_78296f10() {
-    let test_txes = read_test_txes();
-    internal_tx_sign(&test_txes[1]);
-}
-
-#[test]
-#[cfg(ledger_ethereum)]
-pub fn sign_1kovan_to_78296f10() {
-    let test_txes = read_test_txes();
-    internal_tx_sign(&test_txes[2]);
-}
-
-#[test]
-#[cfg(ledger_ethereum)]
-pub fn get_xpub_0() {
-    SimpleLogger::new().with_level(LevelFilter::Trace).init().unwrap();
-
-    thread::sleep(Duration::from_millis(2500));
-    let mut manager = LedgerHidKey::new().unwrap();
-    manager.connect().expect("Not connected");
-    let app = manager.access::<EthereumApp>().unwrap();
-
-    let hdpath = AccountHDPath::try_from("m/44'/60'/0'").expect("Invalid HDPath");
-
-    let act = app.get_xpub(&hdpath, Network::Bitcoin).expect("Failed to get xpub");
-    let exp = ExtendedPubKey::from_str("xpub6CPa3HQTW3vRGMbtqMyoRFmegyaA12RH7U3bwixGVK6oz68MeiLY5sxqZZUfzJkGarAduDJhgEtXmpDKHL6Ytv3a79jg1mkAkexCbQdMNnA").unwrap();
-
-    assert_eq!(act, exp);
-}
-
-#[test]
-#[cfg(ledger_ethereum_classic)]
-pub fn get_xpub_etc_1() {
-    SimpleLogger::new().with_level(LevelFilter::Trace).init().unwrap();
-
-    thread::sleep(Duration::from_millis(2000));
-    let mut manager = LedgerHidKey::new().unwrap();
-    manager.connect().expect("Not connected");
-    let app = manager.access::<EthereumApp>().unwrap();
-
-    let hdpath = AccountHDPath::try_from("m/44'/61'/1'").expect("Invalid HDPath");
-
-    let act = app.get_xpub(&hdpath, Network::Bitcoin).expect("Failed to get xpub");
-    let exp = ExtendedPubKey::from_str("xpub6C5G8hBLBcnGpELb51nXjbvtCZbrPYU8riKw2Gb7L3ML8vyr1zV9dzYKGLoS2DbJLLgLzvaqdvzbfmgppKQB9RXaF4mCXmcRkkJkriX2WDP").unwrap();
-
-    assert_eq!(act, exp);
-}
-
-#[test]
-#[cfg(ledger_ethereum)]
-pub fn is_ethereum_open() {
-    thread::sleep(Duration::from_millis(2000));
-    let mut manager = LedgerHidKey::new().unwrap();
-    manager.connect().expect("Not connected");
-    let app = manager.access::<EthereumApp>().unwrap();
-    let open = app.is_open();
-    assert_eq!(Some(EthereumApps::Ethereum), open);
-}
-
-#[test]
-#[cfg(all(integration_test, not(ledger_ethereum)))]
-pub fn is_ethereum_closed() {
-    thread::sleep(Duration::from_millis(2000));
-    let mut manager = LedgerHidKey::new().unwrap();
-    manager.connect().expect("Not connected");
-    let app = manager.access::<EthereumApp>().unwrap();
-    let open = app.is_open();
-    assert_ne!(Some(EthereumApps::Ethereum), open);
-}
-
-#[test]
-#[cfg(ledger_ethereum_classic)]
-pub fn is_ethereum_classic_open() {
-    thread::sleep(Duration::from_millis(2000));
-    let mut manager = LedgerHidKey::new().unwrap();
-    manager.connect().expect("Not connected");
-    let app = manager.access::<EthereumApp>().unwrap();
-    let open = app.is_open();
-    assert_eq!(Some(EthereumApps::EthereumClassic), open);
-}
-
-#[test]
-#[cfg(all(integration_test, not(ledger_ethereum_classic)))]
-pub fn is_ethereum_classic_closed() {
-    thread::sleep(Duration::from_millis(2000));
-    let mut manager = LedgerHidKey::new().unwrap();
-    manager.connect().expect("Not connected");
-    let app = manager.access::<EthereumApp>().unwrap();
-    let open = app.is_open();
-    assert_ne!(Some(EthereumApps::EthereumClassic), open);
-}
-
-// ------ internal
-
 fn internal_tx_sign(exp: &TestTx) {
     thread::sleep(Duration::from_millis(2000));
     let mut manager = LedgerHidKey::new().unwrap();
@@ -201,4 +83,115 @@ fn internal_tx_sign(exp: &TestTx) {
         .unwrap().to_vec();
 
     assert_eq!(exp.signature, hex::encode(sign));
+}
+
+mod mainnet {
+    use std::thread;
+    use std::time::Duration;
+    use std::str::FromStr;
+    use bitcoin::Network;
+    use bitcoin::util::bip32::ExtendedPubKey;
+    use hdpath::{AccountHDPath, StandardHDPath};
+    use log::LevelFilter;
+    use simple_logger::SimpleLogger;
+    use emerald_hwkey::ledger::app::{EthereumApp, LedgerApp, PubkeyAddressApp};
+    use emerald_hwkey::ledger::app::ethereum::EthereumApps;
+    use emerald_hwkey::ledger::connect::{LedgerHidKey, LedgerKey};
+
+    #[test]
+    pub fn get_ethereum_address() {
+        thread::sleep(Duration::from_millis(2000));
+        let mut manager = LedgerHidKey::new().unwrap();
+        manager.connect().expect("Not connected");
+        let app = manager.access::<EthereumApp>().unwrap();
+
+        let addresses = crate::read_test_addresses();
+        for address in addresses {
+            let hdpath = StandardHDPath::try_from(address.hdpath.as_str()).expect("Invalid HDPath");
+            let act = app.get_address(&hdpath, false).unwrap();
+            assert_eq!(act.address, address.address);
+        }
+    }
+
+    #[test]
+    pub fn sign_1eth_to_78296f10() {
+        let test_txes = crate::read_test_txes();
+        crate::internal_tx_sign(&test_txes[0]);
+    }
+
+    #[test]
+    pub fn get_xpub_0() {
+        SimpleLogger::new().with_level(LevelFilter::Trace).init().unwrap();
+
+        thread::sleep(Duration::from_millis(2500));
+        let mut manager = LedgerHidKey::new().unwrap();
+        manager.connect().expect("Not connected");
+        let app = manager.access::<EthereumApp>().unwrap();
+
+        let hdpath = AccountHDPath::try_from("m/44'/60'/0'").expect("Invalid HDPath");
+
+        let act = app.get_xpub(&hdpath, Network::Bitcoin).expect("Failed to get xpub");
+        let exp = ExtendedPubKey::from_str("xpub6CPa3HQTW3vRGMbtqMyoRFmegyaA12RH7U3bwixGVK6oz68MeiLY5sxqZZUfzJkGarAduDJhgEtXmpDKHL6Ytv3a79jg1mkAkexCbQdMNnA").unwrap();
+
+        assert_eq!(act, exp);
+    }
+
+    #[test]
+    pub fn is_ethereum_open() {
+        thread::sleep(Duration::from_millis(2000));
+        let mut manager = LedgerHidKey::new().unwrap();
+        manager.connect().expect("Not connected");
+        let app = manager.access::<EthereumApp>().unwrap();
+        let open = app.is_open();
+        assert_eq!(Some(EthereumApps::Ethereum), open);
+    }
+
+
+}
+
+#[cfg(test_ethereum_classic)]
+mod classic {
+    use std::thread;
+    use std::time::Duration;
+    use bitcoin::Network;
+    use bitcoin::util::bip32::ExtendedPubKey;
+    use hdpath::AccountHDPath;
+    use log::LevelFilter;
+    use simple_logger::SimpleLogger;
+    use emerald_hwkey::ledger::app::{EthereumApp, LedgerApp};
+    use emerald_hwkey::ledger::app::ethereum::EthereumApps;
+    use emerald_hwkey::ledger::connect::{LedgerHidKey, LedgerKey};
+
+    #[test]
+    pub fn sign_1etc_to_78296f10() {
+        let test_txes = crate::read_test_txes();
+        crate::internal_tx_sign(&test_txes[1]);
+    }
+
+    #[test]
+    pub fn get_xpub_1() {
+        SimpleLogger::new().with_level(LevelFilter::Trace).init().unwrap();
+
+        thread::sleep(Duration::from_millis(2000));
+        let mut manager = LedgerHidKey::new().unwrap();
+        manager.connect().expect("Not connected");
+        let app = manager.access::<EthereumApp>().unwrap();
+
+        let hdpath = AccountHDPath::try_from("m/44'/61'/1'").expect("Invalid HDPath");
+
+        let act = app.get_xpub(&hdpath, Network::Bitcoin).expect("Failed to get xpub");
+        let exp = ExtendedPubKey::from_str("xpub6C5G8hBLBcnGpELb51nXjbvtCZbrPYU8riKw2Gb7L3ML8vyr1zV9dzYKGLoS2DbJLLgLzvaqdvzbfmgppKQB9RXaF4mCXmcRkkJkriX2WDP").unwrap();
+
+        assert_eq!(act, exp);
+    }
+
+    #[test]
+    pub fn is_ethereum_classic_open() {
+        thread::sleep(Duration::from_millis(2000));
+        let mut manager = LedgerHidKey::new().unwrap();
+        manager.connect().expect("Not connected");
+        let app = manager.access::<EthereumApp>().unwrap();
+        let open = app.is_open();
+        assert_eq!(Some(EthereumApps::EthereumClassic), open);
+    }
 }

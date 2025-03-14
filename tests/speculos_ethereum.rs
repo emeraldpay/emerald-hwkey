@@ -1,5 +1,7 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
+#![cfg(all(integration_test, test_ethereum, feature = "speculos"))]
+
 
 use std::convert::TryFrom;
 use std::sync::{Arc, mpsc, Mutex};
@@ -14,13 +16,10 @@ use log::LevelFilter;
 use simple_logger::SimpleLogger;
 use emerald_hwkey::ledger::app::ethereum::EthereumApp;
 use emerald_hwkey::ledger::connect::LedgerKey;
-#[cfg(feature = "speculos")]
 use emerald_hwkey::ledger::connect::speculos_api::{Button, Speculos};
-#[cfg(feature = "speculos")]
 use emerald_hwkey::ledger::connect::LedgerSpeculosKey;
 
 #[test]
-#[cfg(all(ethereum, integration_test, feature = "speculos"))]
 pub fn get_address() {
     let mut manager = LedgerSpeculosKey::new().unwrap();
     manager.connect().expect("Not connected");
@@ -64,7 +63,6 @@ pub fn get_address() {
 }
 
 #[test]
-// #[cfg(all(ethereum, integration_test, feature = "speculos"))]
 pub fn get_address_parallel() {
     let addresses: Vec<(StandardHDPath, String)> = vec![
         ("m/44'/60'/0'/0/0", "0xDad77910DbDFdE764fC21FCD4E74D71bBACA6D8D"),
@@ -120,7 +118,6 @@ pub fn get_address_parallel() {
 }
 
 #[test]
-#[cfg(all(ethereum, integration_test, feature = "speculos"))]
 pub fn sign_tx() {
     // send 1 ETH to 0x78296F1058dD49C5D6500855F59094F0a2876397 paying 20gwei for gas and nonce 3
 
@@ -148,7 +145,6 @@ pub fn sign_tx() {
 }
 
 #[test]
-#[cfg(all(ethereum, integration_test, feature = "speculos"))]
 pub fn sign_tx_eip1559() {
     // send 1 ETH to 0x78296F1058dD49C5D6500855F59094F0a2876397 paying 20gwei max + 1gwei priority for gas and nonce 3
 

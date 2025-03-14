@@ -7,7 +7,12 @@ fn main() {
         Ok(v) => {
             println!("cargo:rustc-cfg=integration_test");
             for c in v.split(",") {
-                println!("cargo:rustc-cfg={}", c);
+                let test_name = if c.starts_with("test_") {
+                    c.to_string()
+                } else {
+                    format!("test_{}", c)
+                };
+                println!("cargo:rustc-cfg={}", test_name);
             }
         },
         Err(_) => {},

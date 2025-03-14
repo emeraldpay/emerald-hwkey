@@ -78,7 +78,7 @@ WARNING: Never transfer real money to the Test Ledger or any wallet created from
 *No App* must be open on Ledger
 
 ----
-EMRLD_HWKEY_TEST=ledger_noapp cargo test --test ledger_noapp -- --test-threads=1
+EMRLD_HWKEY_TEST=noapp cargo test --test ledger_noapp -- --test-threads=1
 ----
 
 ==== Ledger + Bitcoin App
@@ -86,7 +86,7 @@ EMRLD_HWKEY_TEST=ledger_noapp cargo test --test ledger_noapp -- --test-threads=1
 *Bitcoin App* must be open on Ledger
 
 ----
-EMRLD_HWKEY_TEST=ledger_bitcoin cargo test --test ledger_bitcoin -- --test-threads=1
+EMRLD_HWKEY_TEST=bitcoin cargo test --test ledger_bitcoin -- --test-threads=1
 ----
 
 
@@ -95,7 +95,7 @@ EMRLD_HWKEY_TEST=ledger_bitcoin cargo test --test ledger_bitcoin -- --test-threa
 *Bitcoin Test App* must be open on Ledger
 
 ----
-EMRLD_HWKEY_TEST=ledger_bitcoin_test cargo test --test ledger_bitcoin -- --test-threads=1
+EMRLD_HWKEY_TEST=bitcoin_testnet cargo test --test ledger_bitcoin -- --test-threads=1
 ----
 
 
@@ -104,7 +104,7 @@ EMRLD_HWKEY_TEST=ledger_bitcoin_test cargo test --test ledger_bitcoin -- --test-
 *Ethereum App* must be open on Ledger
 
 ----
-EMRLD_HWKEY_TEST=ledger_ethereum cargo test --test ledger_ethereum -- --test-threads=1
+EMRLD_HWKEY_TEST=ethereum cargo test --test ledger_ethereum -- --test-threads=1
 ----
 
 ==== Ledger + Ethereum Classic App
@@ -112,8 +112,24 @@ EMRLD_HWKEY_TEST=ledger_ethereum cargo test --test ledger_ethereum -- --test-thr
 *Ethereum Classic App* must be open on Ledger
 
 ----
-EMRLD_HWKEY_TEST=ledger_ethereum_classic cargo test --test ledger_ethereum -- --test-threads=1
+EMRLD_HWKEY_TEST=ethereum_classic cargo test --test ledger_ethereum -- --test-threads=1
 ----
+
+== Test Configuration
+
+To run integration tests, like above, you cannot run them without connecting Ledger and opening right app on it before running the tess.
+Which also means you cannot run them all at the same time, or from CI, etc.
+To enable a particular test you set the environment variable `EMRLD_HWKEY_TEST` to the name of the test you want to run, which is handled by `build.rs` script to set the corresponding `cfg(...)` option.
+
+The following tests are available (note `test_` prefix is optional in environment variable):
+- `integration_test`
+- `test_noapp`
+- `test_ethereum`
+- `test_ethereum_classic`
+- `test_bitcoin`
+- `test_bitcoin_testnet`
+
+And on top of them there is `integration_test`.
 
 == License
 

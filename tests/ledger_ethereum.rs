@@ -33,9 +33,7 @@ use bitcoin::util::bip32::ExtendedPubKey;
 use bitcoin::Network;
 use hdpath::AccountHDPath;
 
-lazy_static! {
-    static ref LOG_CONF: () = SimpleLogger::new().with_level(LevelFilter::Trace).init().unwrap();
-}
+mod common;
 
 #[derive(Deserialize)]
 struct TestAddress {
@@ -68,8 +66,7 @@ fn read_test_txes() -> Vec<TestTx> {
 }
 
 fn internal_tx_sign(exp: &TestTx) {
-    thread::sleep(Duration::from_millis(2000));
-    let mut manager = LedgerHidKey::new().unwrap();
+    let mut manager = common::create_instance();
     manager.connect().expect("Not connected");
     let app = manager.access::<EthereumApp>().unwrap();
 
@@ -80,7 +77,7 @@ fn internal_tx_sign(exp: &TestTx) {
     let rlp = hex::decode(&exp.unsigned).unwrap();
     let sign = app
         .sign_transaction(&rlp, &from)
-        .unwrap().to_vec();
+        .expect("Signed").to_vec();
 
     assert_eq!(exp.signature, hex::encode(sign));
 }
@@ -97,11 +94,12 @@ mod mainnet {
     use emerald_hwkey::ledger::app::{EthereumApp, LedgerApp, PubkeyAddressApp};
     use emerald_hwkey::ledger::app::ethereum::EthereumApps;
     use emerald_hwkey::ledger::connect::{LedgerHidKey, LedgerKey};
+    use super::common;
 
     #[test]
     pub fn get_ethereum_address() {
-        thread::sleep(Duration::from_millis(2000));
-        let mut manager = LedgerHidKey::new().unwrap();
+        common::init();
+        let mut manager = common::create_instance();
         manager.connect().expect("Not connected");
         let app = manager.access::<EthereumApp>().unwrap();
 
@@ -115,16 +113,15 @@ mod mainnet {
 
     #[test]
     pub fn sign_1eth_to_78296f10() {
+        common::init();
         let test_txes = crate::read_test_txes();
         crate::internal_tx_sign(&test_txes[0]);
     }
 
     #[test]
     pub fn get_xpub_0() {
-        SimpleLogger::new().with_level(LevelFilter::Trace).init().unwrap();
-
-        thread::sleep(Duration::from_millis(2500));
-        let mut manager = LedgerHidKey::new().unwrap();
+        common::init();
+        let mut manager = common::create_instance();
         manager.connect().expect("Not connected");
         let app = manager.access::<EthereumApp>().unwrap();
 
@@ -138,8 +135,8 @@ mod mainnet {
 
     #[test]
     pub fn is_ethereum_open() {
-        thread::sleep(Duration::from_millis(2000));
-        let mut manager = LedgerHidKey::new().unwrap();
+        common::init();
+        let mut manager = common::create_instance();
         manager.connect().expect("Not connected");
         let app = manager.access::<EthereumApp>().unwrap();
         let open = app.is_open();
@@ -161,19 +158,21 @@ mod classic {
     use emerald_hwkey::ledger::app::{EthereumApp, LedgerApp};
     use emerald_hwkey::ledger::app::ethereum::EthereumApps;
     use emerald_hwkey::ledger::connect::{LedgerHidKey, LedgerKey};
+    use super::common;
 
     #[test]
     pub fn sign_1etc_to_78296f10() {
+        crate::common::init();
         let test_txes = crate::read_test_txes();
         crate::internal_tx_sign(&test_txes[1]);
     }
 
     #[test]
     pub fn get_xpub_1() {
-        SimpleLogger::new().with_level(LevelFilter::Trace).init().unwrap();
+        crate::common::init();
 
         thread::sleep(Duration::from_millis(2000));
-        let mut manager = LedgerHidKey::new().unwrap();
+        let mut manager = common::create_instance();
         manager.connect().expect("Not connected");
         let app = manager.access::<EthereumApp>().unwrap();
 
@@ -187,8 +186,8 @@ mod classic {
 
     #[test]
     pub fn is_ethereum_classic_open() {
-        thread::sleep(Duration::from_millis(2000));
-        let mut manager = LedgerHidKey::new().unwrap();
+        crate::common::init();
+        let mut manager = common::create_instance();
         manager.connect().expect("Not connected");
         let app = manager.access::<EthereumApp>().unwrap();
         let open = app.is_open();

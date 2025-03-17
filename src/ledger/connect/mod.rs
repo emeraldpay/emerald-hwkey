@@ -21,6 +21,7 @@ pub use {
 pub use {
     speculos::LedgerSpeculosKey,
 };
+use crate::ledger::connect::direct::LedgerDetails;
 
 pub trait LedgerKey {
 
@@ -59,5 +60,21 @@ pub trait LedgerKey {
     fn access<A>(&self) -> Result<A, HWKeyError> where A: LedgerApp, Self::Transport: 'static {
         let conn = self.open_exclusive()?;
         Ok(A::new(conn))
+    }
+
+    ///
+    /// Get information about the Ledger itself.
+    /// It's available _only if no app_ is launched.
+    fn get_ledger_version(&self) -> Result<LedgerDetails, HWKeyError> {
+        let apdu = APDU {
+            cla: 0xe0,
+            ins: 0x01,
+            ..APDU::default()
+        };
+        let device = self.open_exclusive()?;
+        let mut conn = device.lock()
+            .map_err(|_| HWKeyError::Unavailable)?;
+        let resp = sendrecv_timeout(&mut *conn, &apdu, 100)?;
+        LedgerDetails::try_from(resp)
     }
 }

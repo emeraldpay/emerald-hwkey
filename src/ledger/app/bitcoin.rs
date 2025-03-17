@@ -229,6 +229,7 @@ impl BitcoinApp {
     }
 
     fn get_address_internal(device: &mut dyn LedgerTransport, hd_path: &dyn HDPath, opts: GetAddressOpts) -> Result<AddressResponse, HWKeyError> {
+        log::trace!("Get address for {:?}", hd_path.as_custom());
         let apdu = ApduBuilder::new(COMMAND_GET_ADDRESS)
             .with_data(hd_path.to_bytes().as_slice())
             .with_p1(if opts.confirmation {1} else {0})

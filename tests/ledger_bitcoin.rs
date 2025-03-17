@@ -1,7 +1,4 @@
-#![allow(unused_imports)]
-#![allow(dead_code)]
 #![cfg(all(integration_test, test_bitcoin))]
-
 
 use lazy_static::lazy_static;
 use log::LevelFilter;
@@ -10,24 +7,10 @@ use emerald_hwkey::ledger::app::bitcoin::BitcoinApps;
 use emerald_hwkey::ledger::connect::{LedgerHidKey, LedgerKey};
 use simple_logger::SimpleLogger;
 
+mod common;
+
 lazy_static! {
     static ref LOG_CONF: () = SimpleLogger::new().with_level(LevelFilter::Trace).init().unwrap();
-}
-
-pub fn is_bitcoin_open() {
-    let mut manager = LedgerHidKey::new().unwrap();
-    manager.connect().expect("Not connected");
-    let app = manager.access::<BitcoinApp>().unwrap();
-    let open = app.is_open();
-    assert_eq!(Some(BitcoinApps::Mainnet), open);
-}
-
-pub fn is_bitcoin_closed() {
-    let mut manager = LedgerHidKey::new().unwrap();
-    manager.connect().expect("Not connected");
-    let app = manager.access::<BitcoinApp>().unwrap();
-    let open = app.is_open();
-    assert_ne!(Some(BitcoinApps::Mainnet), open);
 }
 
 #[cfg(not(test_bitcoin_testnet))]
@@ -37,13 +20,25 @@ mod mainnet {
     use bitcoin::psbt::serialize::Serialize;
     use bitcoin::util::bip32::ExtendedPubKey;
     use hdpath::{AccountHDPath, StandardHDPath};
-    use emerald_hwkey::ledger::app::bitcoin::{AddressType, GetAddressOpts};
-    use emerald_hwkey::ledger::app::{BitcoinApp, PubkeyAddressApp};
+    use emerald_hwkey::ledger::app::bitcoin::{AddressType, BitcoinApps, GetAddressOpts};
+    use emerald_hwkey::ledger::app::{BitcoinApp, LedgerApp, PubkeyAddressApp};
     use emerald_hwkey::ledger::connect::{LedgerHidKey, LedgerKey};
+    use super::common;
+
+    #[test]
+    pub fn is_bitcoin_open() {
+        common::init();
+        let mut manager = common::create_instance();
+        manager.connect().expect("Not connected");
+        let app = manager.access::<BitcoinApp>().unwrap();
+        let open = app.is_open();
+        assert_eq!(Some(BitcoinApps::Mainnet), open);
+    }
 
     #[test]
     pub fn get_bitcoin_address() {
-        let mut manager = LedgerHidKey::new().unwrap();
+        common::init();
+        let mut manager = common::create_instance();
         manager.connect().expect("Not connected");
         let app = manager.access::<BitcoinApp>().unwrap();
 
@@ -65,7 +60,8 @@ mod mainnet {
 
     #[test]
     pub fn get_bitcoin_address_legacy() {
-        let mut manager = LedgerHidKey::new().unwrap();
+        common::init();
+        let mut manager = common::create_instance();
         manager.connect().expect("Not connected");
         let app = manager.access::<BitcoinApp>().unwrap();
 
@@ -89,7 +85,8 @@ mod mainnet {
 
     #[test]
     pub fn get_bitcoin_address_segwit_compat() {
-        let mut manager = LedgerHidKey::new().unwrap();
+        common::init();
+        let mut manager = common::create_instance();
         manager.connect().expect("Not connected");
         let app = manager.access::<BitcoinApp>().unwrap();
 
@@ -113,7 +110,8 @@ mod mainnet {
 
     #[test]
     pub fn confirm_get_bitcoin_address() {
-        let mut manager = LedgerHidKey::new().unwrap();
+        common::init();
+        let mut manager = common::create_instance();
         manager.connect().expect("Not connected");
         let app = manager.access::<BitcoinApp>().unwrap();
 
@@ -124,7 +122,8 @@ mod mainnet {
 
     #[test]
     pub fn compat_get_bitcoin_address() {
-        let mut manager = LedgerHidKey::new().unwrap();
+        common::init();
+        let mut manager = common::create_instance();
         manager.connect().expect("Not connected");
         let app = manager.access::<BitcoinApp>().unwrap();
 
@@ -135,7 +134,8 @@ mod mainnet {
 
     #[test]
     pub fn get_xpub_0() {
-        let mut manager = LedgerHidKey::new().unwrap();
+        common::init();
+        let mut manager = common::create_instance();
         manager.connect().expect("Not connected");
         let app = manager.access::<BitcoinApp>().unwrap();
 
@@ -149,7 +149,8 @@ mod mainnet {
 
     #[test]
     pub fn get_xpub_1() {
-        let mut manager = LedgerHidKey::new().unwrap();
+        common::init();
+        let mut manager = common::create_instance();
         manager.connect().expect("Not connected");
         let app = manager.access::<BitcoinApp>().unwrap();
 
@@ -163,7 +164,8 @@ mod mainnet {
 
     #[test]
     pub fn get_xpub_84_0() {
-        let mut manager = LedgerHidKey::new().unwrap();
+        common::init();
+        let mut manager = common::create_instance();
         manager.connect().expect("Not connected");
         let app = manager.access::<BitcoinApp>().unwrap();
 
@@ -179,7 +181,8 @@ mod mainnet {
 
     #[test]
     pub fn get_xpub_84_17() {
-        let mut manager = LedgerHidKey::new().unwrap();
+        common::init();
+        let mut manager = common::create_instance();
         manager.connect().expect("Not connected");
         let app = manager.access::<BitcoinApp>().unwrap();
 
@@ -205,10 +208,12 @@ mod testnet {
     use emerald_hwkey::ledger::app::bitcoin::{BitcoinApps, GetAddressOpts, SignTx, UnsignedInput};
     use emerald_hwkey::ledger::app::{BitcoinApp, LedgerApp, PubkeyAddressApp};
     use emerald_hwkey::ledger::connect::{LedgerHidKey, LedgerKey};
+    use super::common;
 
     #[test]
     pub fn test_is_bitcoin_test_open() {
-        let mut manager = LedgerHidKey::new().unwrap();
+        common::init();
+        let mut manager = common::create_instance();
         manager.connect().expect("Not connected");
         let app = manager.access::<BitcoinApp>().unwrap();
         let open = app.is_open();
@@ -217,7 +222,8 @@ mod testnet {
 
     #[test]
     pub fn get_bitcoin_address_testnet() {
-        let mut manager = LedgerHidKey::new().unwrap();
+        common::init();
+        let mut manager = common::create_instance();
         manager.connect().expect("Not connected");
         let app = manager.access::<BitcoinApp>().unwrap();
 
@@ -244,7 +250,8 @@ mod testnet {
 
     #[test]
     pub fn get_xpub_test() {
-        let mut manager = LedgerHidKey::new().unwrap();
+        common::init();
+        let mut manager = common::create_instance();
         manager.connect().expect("Not connected");
         let app = manager.access::<BitcoinApp>().unwrap();
 
@@ -258,7 +265,8 @@ mod testnet {
 
     #[test]
     pub fn address_within_xpub() {
-        let mut manager = LedgerHidKey::new().unwrap();
+        common::init();
+        let mut manager = common::create_instance();
         manager.connect().expect("Not connected");
         let app = manager.access::<BitcoinApp>().unwrap();
 
@@ -321,9 +329,11 @@ mod testnet {
             ],
         };
 
+        common::init();
+
         println!("Sign tx {}", hex::encode(tx.serialize()));
 
-        let mut manager = LedgerHidKey::new().unwrap();
+        let mut manager = common::create_instance();
         manager.connect().expect("Not connected");
         let app = manager.access::<BitcoinApp>().unwrap();
         let signed = app.sign_tx(&mut tx, &SignTx {
@@ -364,6 +374,7 @@ mod testnet {
         // as 0.15 to tb1qg9zx7vnkfs8yaycm66wz5tat6d9x29wrezhcr0
         // change 0.01971643 to tb1qe8nwur644jfmsazsnmj903kr70sqnt3n9vjvlh at m/84'/1'/0'/1/0
 
+        common::init();
 
         let amount1 = 6_816_000;
         let amount2 = 8_156_100;
@@ -436,7 +447,7 @@ mod testnet {
             network: Network::Testnet,
         };
 
-        let mut manager = LedgerHidKey::new().unwrap();
+        let mut manager = common::create_instance();
         manager.connect().expect("Not connected");
         let app = manager.access::<BitcoinApp>().unwrap();
         let signed = app.sign_tx(&mut tx, &sign_with);

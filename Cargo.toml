@@ -46,4 +46,4 @@ rand = "0.9"
 secp256k1 = { version = "~0.24", features = ["rand", "recovery"] }
 
 [lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(integration_test, test_noapp, test_ethereum, test_ethereum_classic, test_bitcoin, test_bitcoin_testnet)'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(integration_test, test_hid, test_noapp, test_ethereum, test_ethereum_classic, test_bitcoin, test_bitcoin_testnet)'] }

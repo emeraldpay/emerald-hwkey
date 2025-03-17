@@ -32,11 +32,11 @@ impl<LK: LedgerKey> Clone for LedgerKeyShared<LK> {
 }
 
 enum Command {
-    Stop,
     Connect(Sender<Result<(), HWKeyError>>),
     HaveDevice(Sender<bool>),
     Write(Vec<u8>, Sender<Result<usize, HWKeyError>>),
     Read(i32, Sender<Result<Vec<u8>, HWKeyError>>),
+    SetDisconnected,
 }
 
 #[derive(Clone, Eq, PartialEq)]
@@ -55,7 +55,11 @@ impl LedgerKeyShared<LedgerHidKey> {
             let mut value = Self::new();
             let connected = value.connect();
             if connected.is_ok() {
-                let _ = comm::ping(&value);
+                let ping = comm::ping(&value);
+                if ping.is_err() {
+                    log::warn!("No immediate response from Ledger: {:?}. Will try to reconnect", ping);
+                    value.set_disconnected();
+                }
             }
             value
         });
@@ -101,26 +105,11 @@ impl<LK: LedgerKey> LedgerKeyShared<LK> {
         *r != State::Init
     }
 
-    fn is_disconnected(&self) -> bool {
-        let r = self.state.read().unwrap();
-        *r == State::Disconnected
-    }
-
     fn ensure_working(&self) -> Result<(), HWKeyError> {
         if !self.is_working() {
             return Err(HWKeyError::Unavailable)
         }
         Ok(())
-    }
-
-    fn try_connect(&mut self) -> Result<(), HWKeyError> {
-        {
-            let r = self.state.read().unwrap();
-            if *r != State::Disconnected {
-                return Ok(())
-            }
-        }
-        self.connect()
     }
 
     pub fn is_connected(&self) -> bool {
@@ -137,6 +126,10 @@ impl<LK: LedgerKey> LedgerKeyShared<LK> {
         } else {
             false
         }
+    }
+
+    fn set_disconnected(&self) {
+        let _ = self.channel.send(Command::SetDisconnected);
     }
 
     fn run(channel: Receiver<Command>, state: Arc<RwLock<State>>) {
@@ -157,8 +150,8 @@ impl<LK: LedgerKey> LedgerKeyShared<LK> {
                 match channel.recv() {
                     Ok(command) => {
                         match command {
-                            Command::Stop => break,
                             Command::Connect(resp) => {
+                                log::info!("Connecting to Ledger...");
                                 if let Err(e) = ledger.connect() {
                                     {
                                         let mut w = state.write().unwrap();
@@ -173,8 +166,18 @@ impl<LK: LedgerKey> LedgerKeyShared<LK> {
                                     let _ = resp.send(Ok(()));
                                 }
                             }
+                            Command::SetDisconnected => {
+                                log::info!("Setting Ledger as disconnected");
+                                let mut w = state.write().unwrap();
+                                *w = State::Disconnected;
+                            }
                             Command::HaveDevice(resp) => {
-                                let _ = resp.send(device.is_some());
+                                log::trace!("Check if device is connected");
+                                let is_connected = {
+                                    let state = state.read().unwrap().clone();
+                                    matches!(state, State::Working)
+                                };
+                                let _ = resp.send(device.is_some() && is_connected);
                             }
                             Command::Write(data, resp) => {
                                 match &device {
@@ -206,7 +209,6 @@ impl<LK: LedgerKey> LedgerKeyShared<LK> {
                                     Some(hid) => {
                                         let mut data = [0u8; comm::HID_RPT_SIZE];
                                         let len = {
-                                            // hid.read_timeout(&mut data, timeout)
                                             HidDevice::read_timeout(&hid, &mut data, timeout)
                                                 .map_err(|e| HWKeyError::CommError(format!("{}", e)))
                                         };
@@ -216,12 +218,13 @@ impl<LK: LedgerKey> LedgerKeyShared<LK> {
                                                     let mut w = state.write().unwrap();
                                                     *w = State::Disconnected;
                                                 }
+                                                log::trace!("Disconnected due to error: {:?}", e);
                                                 let _ = resp.send(Err(e.into()));
                                             }
                                             Ok(len) => {
                                                 let mut result = Vec::with_capacity(len);
                                                 result.extend_from_slice(&data[..len]);
-                                                log::trace!("Read data: {}", hex::encode(&result));
+                                                log::trace!("Received data: {}", hex::encode(&result));
                                                 let _ = resp.send(Ok(result));
                                             }
                                         }
@@ -249,10 +252,13 @@ impl<LK: LedgerKey> LedgerKey for LedgerKeyShared<LK> {
     type Transport = Self;
 
     fn create() -> Result<Self, HWKeyError> {
-        panic!("Not implemented")
+        panic!("Not implemented. use LedgerKeyShared::instance() instead")
     }
 
     fn connect(&mut self) -> Result<(), HWKeyError> {
+        if self.is_connected() {
+            return Ok(())
+        }
         let (tx, rx) = channel();
         if let Err(e) = self.channel.send(Command::Connect(tx)) {
             log::error!("Error sending command: {:?}", e);

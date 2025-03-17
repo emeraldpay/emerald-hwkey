@@ -6,15 +6,18 @@ use std::thread;
 use std::time::Duration;
 use log::Level;
 use emerald_hwkey::ledger::app::ethereum::EthereumApps;
-use emerald_hwkey::ledger::app::{EthereumApp, LedgerApp};
+use emerald_hwkey::ledger::app::{BitcoinApp, EthereumApp, LedgerApp};
+use emerald_hwkey::ledger::app::bitcoin::BitcoinApps;
 use emerald_hwkey::ledger::connect::direct::LedgerHidKey;
 use emerald_hwkey::ledger::connect::LedgerKey;
 
+mod common;
 
 #[test]
 pub fn reads_ledger_version() {
-    simple_logger::init_with_level(Level::Trace).unwrap();
-    let mut manager = LedgerHidKey::new().unwrap();
+    common::init();
+
+    let mut manager = common::create_instance();
     manager.connect().expect("Not connected");
     let ledger = manager.get_ledger_version();
     assert!(ledger.is_ok());
@@ -23,7 +26,9 @@ pub fn reads_ledger_version() {
 
 #[test]
 pub fn is_ethereum_closed() {
-    let mut manager = LedgerHidKey::new().unwrap();
+    common::init();
+
+    let mut manager = common::create_instance();
     manager.connect().expect("Not connected");
     let app = manager.access::<EthereumApp>().unwrap();
     let open = app.is_open();
@@ -32,9 +37,22 @@ pub fn is_ethereum_closed() {
 
 #[test]
 pub fn is_ethereum_classic_closed() {
-    let mut manager = LedgerHidKey::new().unwrap();
+    common::init();
+
+    let mut manager = common::create_instance();
     manager.connect().expect("Not connected");
     let app = manager.access::<EthereumApp>().unwrap();
     let open = app.is_open();
     assert_ne!(Some(EthereumApps::EthereumClassic), open);
+}
+
+#[test]
+pub fn is_bitcoin_closed() {
+    common::init();
+
+    let mut manager = common::create_instance();
+    manager.connect().expect("Not connected");
+    let app = manager.access::<BitcoinApp>().unwrap();
+    let open = app.is_open();
+    assert_ne!(Some(BitcoinApps::Mainnet), open);
 }

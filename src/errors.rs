@@ -5,6 +5,8 @@ pub enum HWKeyError {
     /// Device is unavailable
     Unavailable,
 
+    DeviceLocked,
+
     /// Received an empty frame. Usually means a timeout.
     EmptyResponse,
     /// An unsupported cipher
@@ -55,6 +57,7 @@ impl fmt::Display for HWKeyError {
             HWKeyError::OtherError(ref str) => write!(f, "HWKey other error: {}", str),
             HWKeyError::InputError(ref str) => write!(f, "HWKey invalid input: {}", str),
             HWKeyError::InvalidResponse(e) => write!(f, "HWKey invalid resp: {:?}", e),
+            HWKeyError::DeviceLocked => write!(f, "HWKey Locked"),
         }
     }
 }

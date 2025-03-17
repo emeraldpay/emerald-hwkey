@@ -1,6 +1,7 @@
 /*
 Copyright 2019 ETCDEV GmbH
 Copyright 2020 EmeraldPay, Inc
+Copyright 2025 EmeraldPay
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,7 +15,8 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-//! # Module providing commnication using HID API
+
+//! # Module providing communication using HID API
 //!
 
 use hex;
@@ -52,12 +54,23 @@ pub const SW_INCONSISTENT_PS: [u8; 2] =         [0x6A, 0x87];
 pub const SW_WRONG_PS: [u8; 2] =                [0x6b, 0x00];
 pub const SW_NO_ERROR: [u8; 2] =                [0x90, 0x00];
 
+pub const USER_REFUSED_ON_DEVICE: [u8; 2] =     [0x55, 0x01];
+pub const DEVICE_LOCKED: [u8; 2] =              [0x55, 0x15];
+
+const TAG_PING: u8 = 0x02;
+const TAG_DATA: u8 = 0x05;
+
 /// Packs header with Ledgers magic numbers
-fn get_hid_header(channel: u16, index: usize) -> [u8; 5] {
+fn to_hid_header(channel: u16, index: usize) -> [u8; 5] {
+    // HID header:
+    // 2 bytes : channel id
+    // 1 byte  : tag
+    // 2 bytes : sequence number
+    //
     [
         (channel >> 8) as u8,
         (channel & 0xff) as u8, //channel
-        0x05,                   //tag
+        TAG_DATA,                   //tag
         (index >> 8) as u8,
         (index & 0xff) as u8, //length
     ]
@@ -65,15 +78,26 @@ fn get_hid_header(channel: u16, index: usize) -> [u8; 5] {
 
 ///
 fn check_recv_frame(frame: &[u8], channel: u16, index: usize) -> Result<(), HWKeyError> {
+    // Response header:
+    // 2 bytes : channel id
+    // 1 byte  : tag
+    // 2 bytes : sequence number
+    //
+
     if size_of_val(frame) < 5
         || frame[0] != (channel >> 8) as u8
         || frame[1] != (channel & 0xff) as u8
-        || frame[2] != 0x05
+        || frame[2] != TAG_DATA
     {
         return Err(HWKeyError::CommError("Invalid frame header size".to_string()));
     }
 
     let seq = (frame[3] as usize) << 8 | (frame[4] as usize);
+
+    if seq == 0xbf {
+        return Err(HWKeyError::CommError("Device not ready".to_string()));
+    }
+
     if seq != index {
         return Err(HWKeyError::CommError(format!(
             "Invalid sequence. {:?}  != {:?} (act != exp) of {:}",
@@ -115,7 +139,7 @@ pub fn sw_to_error(sw_h: u8, sw_l: u8) -> Result<(), HWKeyError> {
         SW_WRONG_PS => Err(HWKeyError::CommError("Wrong parameters".to_string())),
         SW_USER_CANCEL => Err(HWKeyError::CommError("Canceled by user".to_string())),
         SW_CONDITIONS_NOT_SATISFIED => {
-            Err(HWKeyError::CommError("Conditions not satisfied()".to_string()))
+            Err(HWKeyError::CommError("Conditions not satisfied".to_string()))
         }
         v => Err(HWKeyError::CommError(format!(
             "Internal communication error: {:?}",
@@ -143,7 +167,7 @@ pub fn send(dev: &dyn LedgerTransport, apdu: &APDU) -> Result<(), HWKeyError> {
         // index.
         let mut frame: [u8; (HID_RPT_SIZE + 1) as usize] = [0; (HID_RPT_SIZE + 1) as usize];
 
-        frame[1..6].clone_from_slice(&get_hid_header(channel, frame_index));
+        frame[1..6].clone_from_slice(&to_hid_header(channel, frame_index));
         if !init_sent {
             frame[6..13].clone_from_slice(&get_init_header(&apdu));
             init_sent = true;
@@ -242,7 +266,7 @@ pub fn ping(dev: &dyn LedgerTransport) -> Result<bool, HWKeyError> {
     let channel: u16 = 0x101;
     frame[1] = (channel >> 8) as u8;
     frame[2] = (channel & 0xff) as u8;
-    frame[3] = 0x02;
+    frame[3] = TAG_PING;
     if log_enabled!(log::Level::Trace) {
         let parts: Vec<String> = frame.iter().map(|byte| format!("{:02x}", byte)).collect();
         trace!(">> PING USB send: {}", parts.join(""));
@@ -251,12 +275,19 @@ pub fn ping(dev: &dyn LedgerTransport) -> Result<bool, HWKeyError> {
         return Err(err.into());
     };
     let mut frame: [u8; HID_RPT_SIZE] = [0u8; HID_RPT_SIZE];
-    let frame_size = dev.read(&mut frame)?;
+    let frame_size = dev.read_timeout(&mut frame, 500)?;
+    if frame_size == 0 {
+        return Err(HWKeyError::EmptyResponse)
+    }
     let mut data: Vec<u8> = Vec::new();
     data.extend_from_slice(&frame[7..frame_size]);
 
     if log_enabled!(log::Level::Trace) {
         trace!("\t\t|-- PING response: {:?}", hex::encode(&data));
+    }
+
+    if data[0] == 0x04 {
+        return Err(HWKeyError::DeviceLocked)
     }
 
     Ok(data[0] == 0)

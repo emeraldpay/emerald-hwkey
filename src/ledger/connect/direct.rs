@@ -17,10 +17,7 @@ limitations under the License.
 
 use crate::{
     errors::HWKeyError,
-    ledger::{
-        apdu::APDU,
-        comm::ping, comm::sendrecv_timeout
-    },
+    ledger::comm::ping,
 };
 use hidapi::{DeviceInfo, HidApi, HidDevice};
 use std::{
@@ -162,22 +159,6 @@ impl LedgerHidKey {
         }
     }
 
-    ///
-    /// Get information about the Ledger itself.
-    /// It's available _only if no app_ is launched.
-    pub fn get_ledger_version(&self) -> Result<LedgerDetails, HWKeyError> {
-        let apdu = APDU {
-            cla: 0xe0,
-            ins: 0x01,
-            ..APDU::default()
-        };
-        let device = self.open_exclusive()?;
-        let mut conn = device.lock()
-            .map_err(|_| HWKeyError::Unavailable)?;
-        let resp = sendrecv_timeout(&mut *conn, &apdu, 100)?;
-        LedgerDetails::try_from(resp)
-    }
-
 }
 
 pub(crate) fn read_slice(pos: usize, buf: &Vec<u8>) -> Result<(Vec<u8>, usize), HWKeyError> {
@@ -275,6 +256,8 @@ impl LedgerKey for LedgerHidKey {
 
             return Err(HWKeyError::Unavailable);
         }
+
+        debug!("Connecting to {:?}", current.as_ref().unwrap());
 
         let hid_info = current.unwrap();
         let d = Device::from(hid_info);

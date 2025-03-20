@@ -2,8 +2,8 @@ extern crate bitcoin as bitcoin_lib;
 
 use std::sync::{Arc, Mutex};
 use bitcoin_lib::{
-    Network,
-    util::bip32::{ChainCode, ChildNumber, ExtendedPubKey, Fingerprint},
+    NetworkKind,
+    bip32::{ChainCode, ChildNumber, Xpub, Fingerprint},
     secp256k1::PublicKey
 };
 use hdpath::{CustomHDPath, HDPath, PathValue};
@@ -59,7 +59,7 @@ pub trait PubkeyAddressApp {
     /// Get XPub at the specified hd path (usually it's a path to an account)
     /// `network` is applicable to _Bitcoin_ blockchain, and it only affects how XPub is serialized.
     /// For non-bitcoin blockchains `Bitcoin::Mainnet` may be used.
-    fn get_xpub(&self, hd_path: &dyn HDPath, network: Network) -> Result<ExtendedPubKey, HWKeyError> {
+    fn get_xpub(&self, hd_path: &dyn HDPath, network: NetworkKind) -> Result<Xpub, HWKeyError> {
         let pubkey = self.get_extkey_at(hd_path)?;
         let index = hd_path.get(hd_path.len() - 1).unwrap();
 
@@ -72,12 +72,12 @@ pub trait PubkeyAddressApp {
                 .expect("No parent HD Path");
             let parent_key = self.get_extkey_at(&parent_hd_path)?;
             let fp = bitcoin::hash160(&parent_key.as_pubkey().serialize());
-            Fingerprint::from(&fp[0..4])
+            Fingerprint::try_from(&fp[0..4]).unwrap()
         } else {
             Fingerprint::default()
         };
 
-        let result = ExtendedPubKey {
+        let result = Xpub {
             network,
             depth: hd_path.len(),
             public_key: bitcoin_lib::secp256k1::PublicKey::from(pubkey.as_pubkey().clone()),

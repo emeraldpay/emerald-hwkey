@@ -13,7 +13,7 @@ use std::convert::TryFrom;
 use hdpath::{AccountHDPath, HDPath, Purpose};
 use bitcoin::{
     secp256k1::PublicKey,
-    util::bip32::ChainCode
+    bip32::ChainCode
 };
 use crate::ledger::connect::direct::CHUNK_SIZE;
 
@@ -92,7 +92,7 @@ impl TryFrom<Vec<u8>> for AddressResponse {
             ))
         }
         let chaincode = (&value[chaincode_start..chaincode_end]).to_vec();
-        let chaincode = ChainCode::from(chaincode.as_slice());
+        let chaincode = ChainCode::try_from(chaincode.as_slice()).unwrap();
 
         Ok(AddressResponse {
             pubkey: pubkey_comp, address, chaincode

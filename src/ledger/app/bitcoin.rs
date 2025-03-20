@@ -3,9 +3,7 @@ use std::str::{from_utf8};
 use std::sync::{Arc, Mutex};
 use bitcoin::{
     Transaction,
-    Script,
     Address,
-    Network,
     VarInt,
     PublicKey,
     EcdsaSighashType,
@@ -16,8 +14,13 @@ use bitcoin::{
         witness::Witness,
         opcodes
     },
-    util::psbt::serialize::Serialize,
-    util::bip32::{ChainCode}
+    bip32::{ChainCode},
+    ScriptBuf,
+    CompressedPublicKey,
+    WPubkeyHash,
+    NetworkKind,
+    KnownHrp,
+    ecdsa::Signature
 };
 use byteorder::{WriteBytesExt, LittleEndian};
 use hdpath::{StandardHDPath, HDPath};
@@ -84,7 +87,7 @@ pub struct GetAddressOpts {
     pub address_type: AddressType,
     pub confirmation: bool,
     pub verify_string: bool,
-    pub network: Network,
+    pub network: NetworkKind,
 }
 
 impl Default for GetAddressOpts {
@@ -93,7 +96,7 @@ impl Default for GetAddressOpts {
             address_type: AddressType::Bench32,
             confirmation: false,
             verify_string: true,
-            network: Network::Bitcoin
+            network: NetworkKind::Main
         }
     }
 }
@@ -114,12 +117,15 @@ impl GetAddressOpts {
     }
 }
 
-pub fn hash160(value: &[u8]) -> Vec<u8> {
+pub fn hash160(value: &[u8]) -> [u8; 20] {
     let mut hash256 = Sha256::new();
     hash256.update(value);
     let mut hash160 = Ripemd160::new();
     hash160.update(hash256.finalize());
-    hash160.finalize().to_vec()
+    let bytes = hash160.finalize().to_vec();
+    let mut result = [0u8; 20];
+    result.copy_from_slice(bytes.as_slice());
+    result
 }
 
 impl TryFrom<(Vec<u8>, GetAddressOpts)> for AddressResponse {
@@ -152,12 +158,19 @@ impl TryFrom<(Vec<u8>, GetAddressOpts)> for AddressResponse {
         }
 
         let address = match opts.address_type {
-            AddressType::Bench32 => Address::p2wpkh(&pubkey_comp, opts.network)
-                .map_err(|_| HWKeyError::CryptoError("Invalid Pubkey".to_string()))?,
+            AddressType::Bench32 => {
+                let compressed = CompressedPublicKey::try_from(pubkey_comp)
+                    .map_err(|_| HWKeyError::CryptoError("Invalid public key".to_string()))?;
+                let hrp = match opts.network {
+                    NetworkKind::Main => KnownHrp::Mainnet,
+                    NetworkKind::Test => KnownHrp::Testnets
+                };
+                Address::p2wpkh(&compressed, hrp)
+            },
             AddressType::SegwitCompat => {
                 let script = Builder::new()
                     .push_opcode(opcodes::all::OP_PUSHBYTES_0)
-                    .push_slice(hash160(pubkey_comp.serialize().as_slice()).as_slice())
+                    .push_slice(hash160(pubkey_comp.to_bytes().as_slice()))
                     .into_script();
                 Address::p2sh(&script, opts.network)
                     .map_err(|_| HWKeyError::CryptoError("Invalid Pubkey".to_string()))?
@@ -177,7 +190,7 @@ impl TryFrom<(Vec<u8>, GetAddressOpts)> for AddressResponse {
             }
         }
 
-        let chaincode_len = 32 as usize;
+        let chaincode_len = 32usize;
         let chaincode_start = address_end;
         let chaincode_end = chaincode_start + chaincode_len;
         if chaincode_end > value.len() {
@@ -186,7 +199,7 @@ impl TryFrom<(Vec<u8>, GetAddressOpts)> for AddressResponse {
             ))
         }
         let chaincode = (&value[chaincode_start..chaincode_end]).to_vec();
-        let chaincode = ChainCode::from(chaincode.as_slice());
+        let chaincode = ChainCode::try_from(chaincode.as_slice()).unwrap();
 
         Ok(AddressResponse {
             pubkey: pubkey_comp, address, chaincode
@@ -196,7 +209,7 @@ impl TryFrom<(Vec<u8>, GetAddressOpts)> for AddressResponse {
 
 #[derive(Clone)]
 pub struct SignTx {
-    pub network: Network,
+    pub network: NetworkKind,
     pub inputs: Vec<UnsignedInput>,
 }
 
@@ -212,7 +225,7 @@ struct InputDetails {
     prev_tx: TxIn,
     amount: u64,
     from_address: AddressResponse,
-    redeem: Script,
+    redeem: ScriptBuf,
     hd_path: StandardHDPath
 }
 
@@ -239,22 +252,16 @@ impl BitcoinApp {
             .and_then(|res| AddressResponse::try_from((res, opts)))
     }
 
-    fn witness_redeem(pubkey: &PublicKey, network: Network) -> Script {
-        let address = Address::p2wpkh(&PublicKey::from_slice(&pubkey.inner.serialize()).unwrap(), network).unwrap();
-        let base = address.script_pubkey();
-
-        Builder::new()
-            .push_opcode(opcodes::all::OP_DUP)
-            .push_opcode(opcodes::all::OP_HASH160)
-            .push_slice(&base[2..])
-            .push_opcode(opcodes::all::OP_EQUALVERIFY)
-            .push_opcode(opcodes::all::OP_CHECKSIG)
-            .into_script()
+    fn witness_redeem(pubkey: &PublicKey) -> ScriptBuf {
+        let compressed = CompressedPublicKey::try_from(pubkey.clone())
+            .map_err(|_| HWKeyError::CryptoError("Invalid public key".to_string())).unwrap();
+        let key_hash = WPubkeyHash::from(&compressed);
+        ScriptBuf::p2wpkh_script_code(key_hash)
     }
 
     /// Supports only Trusted Segwit tx.
     /// Trusted Segwit is supported only after 1.4 of the Ledger Firmware
-    pub fn sign_tx(&self, tx: &mut Transaction, config: &SignTx) -> Result<Vec<Vec<u8>>, HWKeyError> {
+    pub fn sign_tx(&self, tx: &mut Transaction, config: &SignTx) -> Result<Vec<Signature>, HWKeyError> {
         let mut device = self.ledger.lock().unwrap();
         // Protocol:
         // 1. The transaction shall be processed first with all inputs having a null script length
@@ -275,7 +282,7 @@ impl BitcoinApp {
                 amount: ui.amount,
                 from_address: address.clone(),
                 hd_path: ui.hd_path.clone(),
-                redeem: BitcoinApp::witness_redeem(&address.pubkey, config.network)
+                redeem: BitcoinApp::witness_redeem(&address.pubkey)
             });
         }
 
@@ -289,12 +296,8 @@ impl BitcoinApp {
         for (i, input) in inputs.iter().enumerate() {
             let ic = input.clone();
             self.start_untrusted_hash_tx(&mut *device, false,&vec![ic], &tx, true)?;
-            let mut signature = self.untrusted_hash_sign(&mut *device, input, tx.lock_time.to_u32())?;
-            // Signed hash, as ASN-1 encoded R & S components. Mask first byte with 0xFE
-            signature[0] = signature[0] & 0xfe;
-            tx.input[i].witness = Witness::from_vec(vec![
-                signature.clone(), input.from_address.pubkey.serialize().to_vec()
-            ]);
+            let signature = self.untrusted_hash_sign(&mut *device, input, tx.lock_time.to_consensus_u32())?;
+            tx.input[i].witness = Witness::p2wpkh(&signature, &input.from_address.pubkey.inner);
             signatures.push(signature);
         }
 
@@ -305,7 +308,7 @@ impl BitcoinApp {
     fn start_untrusted_hash_tx(&self, device: &mut dyn LedgerTransport, is_new_tx: bool, inputs: &Vec<InputDetails>, tx: &Transaction, second_pass: bool) -> Result<(), HWKeyError> {
         let mut data: Vec<u8> = Vec::new();
         // needs version
-        data.write_u32::<LittleEndian>(tx.version as u32)
+        data.write_u32::<LittleEndian>(tx.version.0 as u32)
             .map_err(|_| HWKeyError::EncodingError("Failed to encode version".to_string()))?;
         data.extend_from_slice(serialize(&VarInt(inputs.len() as u64)).as_slice());
         for ti in inputs.iter() {
@@ -375,7 +378,7 @@ impl BitcoinApp {
         Ok(())
     }
 
-    fn untrusted_hash_sign(&self, device: &mut dyn LedgerTransport, input: &InputDetails, locktime: u32) -> Result<Vec<u8>, HWKeyError> {
+    fn untrusted_hash_sign(&self, device: &mut dyn LedgerTransport, input: &InputDetails, locktime: u32) -> Result<Signature, HWKeyError> {
         let mut data: Vec<u8> = Vec::new();
         data.extend_from_slice(input.hd_path.to_bytes().as_slice());
         data.push(0x00); // RFU (0x00)
@@ -387,14 +390,16 @@ impl BitcoinApp {
             .with_p2(0x00)
             .with_data(data.as_slice())
             .build();
-        sendrecv(device, &apdu)
+        let signature = sendrecv(device, &apdu)?;
+        Signature::from_slice(signature.as_slice())
+            .map_err(|e| HWKeyError::CryptoError(format!("Invalid signature: {}", e)))
     }
 
     fn finalize_outputs(&self, device: &mut dyn LedgerTransport, tx: &Transaction) -> Result<(), HWKeyError> {
         let mut data: Vec<u8> = Vec::new();
         data.extend_from_slice(serialize(&VarInt(tx.output.len() as u64)).as_slice());
         for output in &tx.output {
-            data.write_u64::<LittleEndian>(output.value)
+            data.write_u64::<LittleEndian>(output.value.to_sat())
                 .map_err(|_| HWKeyError::EncodingError("Failed to encode amount".to_string()))?;
             let script = &output.script_pubkey;
             // serialize() encodes script size
@@ -520,7 +525,6 @@ impl LedgerApp for BitcoinApp {
 mod tests {
     use crate::ledger::app::bitcoin::{AddressResponse, GetAddressOpts, AppVersion};
     use std::convert::TryFrom;
-    use bitcoin::util::psbt::serialize::Serialize;
     use bitcoin::Address;
     use std::str::FromStr;
 
@@ -564,10 +568,10 @@ mod tests {
         let parsed = AddressResponse::try_from((resp, GetAddressOpts::default()));
         assert!(parsed.is_ok(), "{:?}", parsed);
         let parsed = parsed.unwrap();
-        assert_eq!(Address::from_str("bc1qaaayykrrx84clgnpcfqu00nmf2g3mf7f53pk3n").unwrap(), parsed.address);
+        assert_eq!(Address::from_str("bc1qaaayykrrx84clgnpcfqu00nmf2g3mf7f53pk3n").unwrap().assume_checked(), parsed.address);
         assert_eq!(
             "0365fa75cc427606b99d9aaa326fdc7d0d30add37c545c5795eab1112839ccb406",
-            hex::encode(parsed.pubkey.serialize()));
+            hex::encode(parsed.pubkey.to_bytes()));
         assert_eq!(
             "e115bac4f8c9019b63a1dbec0edf5c22ed14bf94508ff082926964c123c0906c",
             hex::encode(parsed.chaincode.as_bytes())
@@ -580,10 +584,10 @@ mod tests {
         let parsed = AddressResponse::try_from((resp, GetAddressOpts::default()));
         assert!(parsed.is_ok(), "{:?}", parsed);
         let parsed = parsed.unwrap();
-        assert_eq!(Address::from_str("bc1qutnalcwjea9zf38vgczkncw8svdc9gzyslavwn").unwrap(), parsed.address);
+        assert_eq!(Address::from_str("bc1qutnalcwjea9zf38vgczkncw8svdc9gzyslavwn").unwrap().assume_checked(), parsed.address);
         assert_eq!(
             "0223e3b63f8bfec04e968b6b413242006e59e74972617543325116d836521fadb5",
-            hex::encode(parsed.pubkey.serialize()));
+            hex::encode(parsed.pubkey.to_bytes()));
         assert_eq!(
             "40b2f931e05f7d88850de2ca6f3a5cb68a95740139944d8e5fb91f7b6e237720",
             hex::encode(parsed.chaincode.as_bytes())
@@ -596,10 +600,10 @@ mod tests {
         let parsed = AddressResponse::try_from((resp, GetAddressOpts::default()));
         assert!(parsed.is_ok(), "{:?}", parsed);
         let parsed = parsed.unwrap();
-        assert_eq!(Address::from_str("bc1qtr4m7wm33c4wzywh3tgtpkkpd0wnd2lmyyqf9m").unwrap(), parsed.address);
+        assert_eq!(Address::from_str("bc1qtr4m7wm33c4wzywh3tgtpkkpd0wnd2lmyyqf9m").unwrap().assume_checked(), parsed.address);
         assert_eq!(
             "02cbf9b7ef45036927be859f4d0125f404ef1247878fb97c2b11c05726df0f2323",
-            hex::encode(parsed.pubkey.serialize()));
+            hex::encode(parsed.pubkey.to_bytes()));
         assert_eq!(
             "8ea6ceaac3341fd23f07c23702ab4303683cce2ddb9d8a4bdb080d4c27b53cae",
             hex::encode(parsed.chaincode.as_bytes())
@@ -612,10 +616,10 @@ mod tests {
         let parsed = AddressResponse::try_from((resp, GetAddressOpts::compat_address()));
         assert!(parsed.is_ok(), "{:?}", parsed);
         let parsed = parsed.unwrap();
-        assert_eq!(Address::from_str("36rYHXjrQp5uJVfZfdW5Y3FvqGDFDVhtms").unwrap(), parsed.address);
+        assert_eq!(Address::from_str("36rYHXjrQp5uJVfZfdW5Y3FvqGDFDVhtms").unwrap().assume_checked(), parsed.address);
         assert_eq!(
             "027311bac2b7908931e73f5b8d02ca9cf8ff294bfad6d2e1e5bba707757d97be35",
-            hex::encode(parsed.pubkey.serialize()));
+            hex::encode(parsed.pubkey.to_bytes()));
         assert_eq!(
             "dae818a01fbfce0d8bf2deaae7d462a6a79a3be90ec011a79c65ec7251ffab2c",
             hex::encode(parsed.chaincode.as_bytes())

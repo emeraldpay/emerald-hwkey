@@ -1,7 +1,7 @@
 [package]
 name = "emerald-hwkey"
 description = "Emerald HWKey - Harware Cryptocurrency Key Access"
-version = "0.6.0-dev"
+version = "0.6.0"
 authors = ["Igor Artamonov <igor@artamonov.email>", "Dmitry Ulanov <dulanov@gmail.com>", "Constantine Kryvomaz <kostiyantynk@gmail.com>"]
 edition = "2021"
 readme = "crates.md"
@@ -20,9 +20,9 @@ speculos=["dep:ureq", "dep:serde", "dep:serde_json", "dep:serde_derive"]
 
 [dependencies]
 hidapi = "2.6"
-#hdpath = "0.6"
+hdpath = "0.7"
 #hdpath = { path = "../hdpath", features = ["with-bitcoin"] }
-hdpath = { git = "https://github.com/emeraldpay/hdpath-rs", features = ["with-bitcoin"] }
+#hdpath = { git = "https://github.com/emeraldpay/hdpath-rs", features = ["with-bitcoin"] }
 hex = "0.4"
 log = "0.4.11"
 bitcoin = { version = "0.32" }

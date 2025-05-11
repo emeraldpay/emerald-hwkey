@@ -29,8 +29,8 @@ use emerald_hwkey::ledger::app::ethereum::EthereumApps;
 use emerald_hwkey::ledger::connect::direct::LedgerHidKey;
 use emerald_hwkey::ledger::connect::LedgerKeyShared;
 use crate::emerald_hwkey::ledger::app::PubkeyAddressApp;
-use bitcoin::util::bip32::ExtendedPubKey;
-use bitcoin::Network;
+use bitcoin::bip32::ExtendedPubKey;
+use bitcoin::NetworkKind;
 use hdpath::AccountHDPath;
 
 mod common;
@@ -86,8 +86,8 @@ mod mainnet {
     use std::thread;
     use std::time::Duration;
     use std::str::FromStr;
-    use bitcoin::Network;
-    use bitcoin::util::bip32::ExtendedPubKey;
+    use bitcoin::NetworkKind;
+    use bitcoin::bip32::ExtendedPubKey;
     use hdpath::{AccountHDPath, StandardHDPath};
     use log::LevelFilter;
     use simple_logger::SimpleLogger;
@@ -127,7 +127,7 @@ mod mainnet {
 
         let hdpath = AccountHDPath::try_from("m/44'/60'/0'").expect("Invalid HDPath");
 
-        let act = app.get_xpub(&hdpath, Network::Bitcoin).expect("Failed to get xpub");
+        let act = app.get_xpub(&hdpath, NetworkKind::Main).expect("Failed to get xpub");
         let exp = ExtendedPubKey::from_str("xpub6CPa3HQTW3vRGMbtqMyoRFmegyaA12RH7U3bwixGVK6oz68MeiLY5sxqZZUfzJkGarAduDJhgEtXmpDKHL6Ytv3a79jg1mkAkexCbQdMNnA").unwrap();
 
         assert_eq!(act, exp);
@@ -141,6 +141,28 @@ mod mainnet {
         let app = manager.access::<EthereumApp>().unwrap();
         let open = app.is_open();
         assert_eq!(Some(EthereumApps::Ethereum), open);
+    }
+
+    #[test]
+    pub fn sign_message() {
+        common::init();
+        let mut manager = common::create_instance();
+        manager.connect().expect("Not connected");
+        let app = manager.access::<EthereumApp>().unwrap();
+
+        // Address: 0x3d66483b4Cad3518861029Ff86a387eBc4705172
+        let hdpath = StandardHDPath::try_from("m/44'/60'/0'/0/0").expect("Invalid HDPath");
+
+        let signature = app.sign_message_erc191(
+            "Hello World!".to_string(),
+            &hdpath,
+        ).expect("Failed to sign message");
+
+        assert_eq!(
+            hex::encode(signature),
+            // v, r, s
+            "1b39b071c236a7912e9ead0f4d7793aac98651d119b82929064882f573716582fa72390e878997d8026b5c062f34c49d35f488cebf5aefe14e9352fe809914363a"
+        )
     }
 
 

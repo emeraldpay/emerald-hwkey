@@ -22,6 +22,7 @@ pub const ECDSA_SIGNATURE_BYTES: usize = 65;
 
 const COMMAND_GET_ADDRESS: u8 = 0x02;
 const COMMAND_SIGN_TRANSACTION: u8 = 0x04;
+const COMMAND_SIGN_MESSAGE: u8 = 0x08;
 const COMMAND_APP_CONFIG: u8 = 0x06;
 
 pub type SignatureBytes = [u8; ECDSA_SIGNATURE_BYTES];
@@ -201,6 +202,72 @@ impl EthereumApp {
                 ECDSA_SIGNATURE_BYTES, v
             ))),
         }
+    }
+
+    /// Sign a message as per ERC-191.
+    /// The Ledger asks the user to validate the SHA-256 hash of the message being signed.
+    /// This command has been supported since firmware version 1.0.8
+    ///
+    /// # Arguments:
+    /// message - a string to sign
+    /// hd_path - HD path, prefixed with count of derivation indexes
+    ///
+    /// # See 
+    /// - https://github.com/LedgerHQ/app-ethereum/blob/d408c161dc43ce4640165464bd8a4f45d662a6f1/doc/ethapp.adoc#sign-eth-transaction
+    /// - https://eips.ethereum.org/EIPS/eip-191
+    pub fn sign_message_erc191(
+        &self,
+        message: String,
+        hd_path: &dyn HDPath,
+    ) -> Result<SignatureBytes, HWKeyError> {
+
+        let _mock = Vec::new();
+        let message = message.as_bytes();
+        let mut message_data = Vec::<u8>::with_capacity(message.len() + 4);
+        message_data.extend_from_slice((message.len() as u32).to_be_bytes().as_slice());
+        message_data.extend_from_slice(message);
+        let message_data = message_data.as_slice();
+        
+        let (init, cont) = match message_data.len() {
+            0..=CHUNK_SIZE => (message_data, _mock.as_slice()),
+            _ => message_data.split_at(CHUNK_SIZE - hd_path.to_bytes().len()),
+        };
+
+        // CLA: E0
+        // INS: 0x08
+        // P1: 00 : first message data block
+        //     80 : subsequent message data block
+        // P2: 00
+
+        let init_apdu = ApduBuilder::new(COMMAND_SIGN_MESSAGE)
+            .with_p1(0x00)
+            .with_data(hd_path.to_bytes().as_slice())
+            .with_data(init)
+            .build();
+
+        let mut handle = self.ledger.lock().unwrap();
+        let mut res = sendrecv(&mut *handle, &init_apdu)?;
+
+        for chunk in cont.chunks(CHUNK_SIZE) {
+            let apdu_cont = ApduBuilder::new(COMMAND_SIGN_MESSAGE)
+                .with_p1(0x80)
+                .with_data(chunk)
+                .build();
+            res = sendrecv(&mut *handle, &apdu_cont)?;
+        }
+        debug!("Received signature: {:?}", hex::encode(&res));
+        match res.len() {
+            ECDSA_SIGNATURE_BYTES => {
+                let mut val: SignatureBytes = [0; ECDSA_SIGNATURE_BYTES];
+                val.copy_from_slice(&res);
+
+                Ok(val)
+            }
+            v => Err(HWKeyError::CryptoError(format!(
+                "Invalid signature length. Expected: {}, received: {}",
+                ECDSA_SIGNATURE_BYTES, v
+            ))),
+        } 
     }
 
     pub fn get_version(&self) -> Result<AppVersion, HWKeyError> {

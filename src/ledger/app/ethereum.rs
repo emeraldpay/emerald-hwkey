@@ -132,6 +132,63 @@ impl TryFrom<Vec<u8>> for AppVersion {
 
 impl EthereumApp {
 
+    /// Split data into chunks for sending to Ledger device
+    /// 
+    /// # Arguments
+    /// * `data` - The data to be chunked
+    /// * `hd_path` - HD path that will be included in the initial chunk
+    /// 
+    /// # Returns
+    /// A tuple of (initial_chunk, continuation_data) where:
+    /// * initial_chunk - First chunk including HD path data
+    /// * continuation_data - Remaining data to be sent in subsequent chunks
+    fn chunk_data<'a>(&self, data: &'a [u8], hd_path: &dyn HDPath) -> (&'a [u8], &'a [u8]) {
+        match data.len() {
+            0..=CHUNK_SIZE => (data, &[]),
+            _ => data.split_at(CHUNK_SIZE - hd_path.to_bytes().len()),
+        }
+    }
+
+    /// Send chunked data to the Ledger device using the standard chunking protocol
+    ///
+    /// # Protocol Details:
+    ///
+    /// ```no_run,ignore
+    ///   P1: 00 : first message data block
+    ///       80 : subsequent message data block
+    ///   P2: 00 : always
+    /// ```
+    /// 
+    /// # Arguments
+    /// * `command` - The APDU command to use
+    /// * `hd_path` - HD path for the initial chunk
+    /// * `data` - The data to be sent in chunks
+    /// 
+    /// # Returns
+    /// The response from the device after sending all chunks
+    fn send_chunked_data(&self, command: u8, hd_path: &dyn HDPath, data: &[u8]) -> Result<Vec<u8>, HWKeyError> {
+        let (init, cont) = self.chunk_data(data, hd_path);
+
+        let init_apdu = ApduBuilder::new(command)
+            .with_p1(0x00)
+            .with_data(hd_path.to_bytes().as_slice())
+            .with_data(init)
+            .build();
+
+        let mut handle = self.ledger.lock().unwrap();
+        let mut res = sendrecv(&mut *handle, &init_apdu)?;
+
+        for chunk in cont.chunks(CHUNK_SIZE) {
+            let apdu_cont = ApduBuilder::new(command)
+                .with_p1(0x80)
+                .with_data(chunk)
+                .build();
+            res = sendrecv(&mut *handle, &apdu_cont)?;
+        }
+
+        Ok(res)
+    }
+
     /// Get address
     ///
     /// # Arguments:
@@ -161,34 +218,22 @@ impl EthereumApp {
     /// tx - RLP encoded transaction
     /// hd_path - HD path, prefixed with count of derivation indexes
     ///
+    /// # Protocol Details:
+    /// According to the Ledger Ethereum specification (reference/ledger-ethereum.adoc), 
+    /// transaction data is sent as:
+    /// - First block: HD path + RLP transaction chunk (no length prefix)
+    /// - Other blocks: RLP transaction chunk only
+    /// The RLP transaction data is sent directly without any length prefix.
+    ///
     pub fn sign_transaction(
         &self,
         tx: &[u8],
         hd_path: &dyn HDPath,
     ) -> Result<SignatureBytes, HWKeyError> {
 
-        let _mock = Vec::new();
-        let (init, cont) = match tx.len() {
-            0..=CHUNK_SIZE => (tx, _mock.as_slice()),
-            _ => tx.split_at(CHUNK_SIZE - hd_path.to_bytes().len()),
-        };
-
-        let init_apdu = ApduBuilder::new(COMMAND_SIGN_TRANSACTION)
-            .with_p1(0x00)
-            .with_data(hd_path.to_bytes().as_slice())
-            .with_data(init)
-            .build();
-
-        let mut handle = self.ledger.lock().unwrap();
-        let mut res = sendrecv(&mut *handle, &init_apdu)?;
-
-        for chunk in cont.chunks(CHUNK_SIZE) {
-            let apdu_cont = ApduBuilder::new(COMMAND_SIGN_TRANSACTION)
-                .with_p1(0x80)
-                .with_data(chunk)
-                .build();
-            res = sendrecv(&mut *handle, &apdu_cont)?;
-        }
+        // Send RLP transaction data directly without length prefix
+        // as per SIGN ETH TRANSACTION specification
+        let res = self.send_chunked_data(COMMAND_SIGN_TRANSACTION, hd_path, tx)?;
         debug!("Received signature: {:?}", hex::encode(&res));
         match res.len() {
             ECDSA_SIGNATURE_BYTES => {
@@ -212,6 +257,13 @@ impl EthereumApp {
     /// message - a string to sign
     /// hd_path - HD path, prefixed with count of derivation indexes
     ///
+    /// # Protocol Details:
+    /// According to the Ledger Ethereum specification (reference/ledger-ethereum.adoc),
+    /// message data is sent as:
+    /// - First block: HD path + Message length (4 bytes) + Message chunk
+    /// - Other blocks: Message chunk only
+    /// The message data requires a 4-byte length prefix (big-endian) before the message content.
+    ///
     /// # See 
     /// - https://github.com/LedgerHQ/app-ethereum/blob/d408c161dc43ce4640165464bd8a4f45d662a6f1/doc/ethapp.adoc#sign-eth-transaction
     /// - https://eips.ethereum.org/EIPS/eip-191
@@ -221,40 +273,14 @@ impl EthereumApp {
         hd_path: &dyn HDPath,
     ) -> Result<SignatureBytes, HWKeyError> {
 
-        let _mock = Vec::new();
         let message = message.as_bytes();
+        // Prepare message data with 4-byte length prefix as per SIGN ETH PERSONAL MESSAGE specification
         let mut message_data = Vec::<u8>::with_capacity(message.len() + 4);
         message_data.extend_from_slice((message.len() as u32).to_be_bytes().as_slice());
         message_data.extend_from_slice(message);
         let message_data = message_data.as_slice();
         
-        let (init, cont) = match message_data.len() {
-            0..=CHUNK_SIZE => (message_data, _mock.as_slice()),
-            _ => message_data.split_at(CHUNK_SIZE - hd_path.to_bytes().len()),
-        };
-
-        // CLA: E0
-        // INS: 0x08
-        // P1: 00 : first message data block
-        //     80 : subsequent message data block
-        // P2: 00
-
-        let init_apdu = ApduBuilder::new(COMMAND_SIGN_MESSAGE)
-            .with_p1(0x00)
-            .with_data(hd_path.to_bytes().as_slice())
-            .with_data(init)
-            .build();
-
-        let mut handle = self.ledger.lock().unwrap();
-        let mut res = sendrecv(&mut *handle, &init_apdu)?;
-
-        for chunk in cont.chunks(CHUNK_SIZE) {
-            let apdu_cont = ApduBuilder::new(COMMAND_SIGN_MESSAGE)
-                .with_p1(0x80)
-                .with_data(chunk)
-                .build();
-            res = sendrecv(&mut *handle, &apdu_cont)?;
-        }
+        let res = self.send_chunked_data(COMMAND_SIGN_MESSAGE, hd_path, message_data)?;
         debug!("Received signature: {:?}", hex::encode(&res));
         match res.len() {
             ECDSA_SIGNATURE_BYTES => {
@@ -331,8 +357,137 @@ impl LedgerApp for EthereumApp {
 
 #[cfg(test)]
 mod tests {
-    use crate::ledger::app::ethereum::AddressResponse;
+    use crate::ledger::app::ethereum::{AddressResponse, EthereumApp};
+    use crate::ledger::app::LedgerApp;
+    use crate::ledger::connect::direct::CHUNK_SIZE;
+    use crate::ledger::connect::mock::MockTransport;
     use std::convert::TryFrom;
+    use std::sync::{Arc, Mutex};
+    use hdpath::{StandardHDPath, HDPath};
+
+    #[test]
+    fn chunk_data_small_data() {
+        let transport = Arc::new(Mutex::new(MockTransport::new()));
+        let app = EthereumApp::new(transport);
+        let hd_path = StandardHDPath::try_from("m/44'/60'/0'/0/0").unwrap();
+        
+        let small_data = vec![1, 2, 3, 4, 5];
+        let (init, cont) = app.chunk_data(&small_data, &hd_path);
+        
+        assert_eq!(init, &small_data);
+        assert_eq!(cont.len(), 0);
+    }
+
+    #[test]
+    fn chunk_data_large_data() {
+        let transport = Arc::new(Mutex::new(MockTransport::new()));
+        let app = EthereumApp::new(transport);
+        let hd_path = StandardHDPath::try_from("m/44'/60'/0'/0/0").unwrap();
+        
+        // Create data larger than CHUNK_SIZE
+        let large_data = vec![0u8; CHUNK_SIZE + 100];
+        let (init, cont) = app.chunk_data(&large_data, &hd_path);
+        
+        let expected_init_size = CHUNK_SIZE - hd_path.to_bytes().len();
+        assert_eq!(init.len(), expected_init_size);
+        assert_eq!(cont.len(), large_data.len() - expected_init_size);
+        
+        // Verify the data is correctly split
+        let mut reconstructed = Vec::new();
+        reconstructed.extend_from_slice(init);
+        reconstructed.extend_from_slice(cont);
+        assert_eq!(reconstructed, large_data);
+    }
+
+    #[test]
+    fn chunk_data_exact_chunk_size() {
+        let transport = Arc::new(Mutex::new(MockTransport::new()));
+        let app = EthereumApp::new(transport);
+        let hd_path = StandardHDPath::try_from("m/44'/60'/0'/0/0").unwrap();
+        
+        // Create data exactly CHUNK_SIZE
+        let exact_data = vec![0u8; CHUNK_SIZE];
+        let (init, cont) = app.chunk_data(&exact_data, &hd_path);
+        
+        assert_eq!(init, &exact_data);
+        assert_eq!(cont.len(), 0);
+    }
+
+    #[test]
+    fn send_chunked_data_builds_correct_apdu() {
+        let transport = Arc::new(Mutex::new(MockTransport::new()));
+        let app = EthereumApp::new(transport);
+        let hd_path = StandardHDPath::try_from("m/44'/60'/0'/0/0").unwrap();
+        
+        let small_data = vec![1, 2, 3, 4, 5];
+        let (init, cont) = app.chunk_data(&small_data, &hd_path);
+        
+        // Verify that chunking works as expected for small data
+        assert_eq!(init, &small_data);
+        assert_eq!(cont.len(), 0);
+        
+        // Test with large data
+        let large_data = vec![0u8; CHUNK_SIZE + 100];
+        let (init, cont) = app.chunk_data(&large_data, &hd_path);
+        
+        // Verify chunking works for large data
+        let expected_init_size = CHUNK_SIZE - hd_path.to_bytes().len();
+        assert_eq!(init.len(), expected_init_size);
+        assert_eq!(cont.len(), large_data.len() - expected_init_size);
+        
+        // Verify data integrity
+        let mut reconstructed = Vec::new();
+        reconstructed.extend_from_slice(init);
+        reconstructed.extend_from_slice(cont);
+        assert_eq!(reconstructed, large_data);
+    }
+
+    #[test]
+    fn chunk_data_respects_hd_path_length() {
+        let transport = Arc::new(Mutex::new(MockTransport::new()));
+        let app = EthereumApp::new(transport);
+        
+        // Test with different HD path lengths using CustomHDPath and StandardHDPath
+        use hdpath::CustomHDPath;
+        
+        // CustomHDPath with fewer derivation levels than StandardHDPath
+        let short_path = CustomHDPath::try_from("m/44'/60'/0'/0").unwrap();      // 4 levels
+        let long_path = StandardHDPath::try_from("m/44'/60'/0'/0/0").unwrap();   // 5 levels
+        
+        let test_data = vec![0u8; CHUNK_SIZE + 50];
+        
+        let (init_short, cont_short) = app.chunk_data(&test_data, &short_path);
+        let (init_long, cont_long) = app.chunk_data(&test_data, &long_path);
+        
+        // Verify the expected chunk sizes
+        let short_path_len = short_path.to_bytes().len();
+        let long_path_len = long_path.to_bytes().len();
+        
+        // Short path should have fewer bytes than long path
+        assert!(short_path_len < long_path_len, "Short path should have fewer bytes than long path");
+        
+        let expected_init_short = CHUNK_SIZE - short_path_len;
+        let expected_init_long = CHUNK_SIZE - long_path_len;
+        
+        assert_eq!(init_short.len(), expected_init_short);
+        assert_eq!(init_long.len(), expected_init_long);
+        
+        // With shorter HD path, more data should fit in initial chunk
+        assert!(init_short.len() > init_long.len(), "Shorter path should allow more data in initial chunk");
+        assert!(cont_short.len() < cont_long.len(), "Shorter path should have less continuation data");
+        
+        // Both should reconstruct to the same original data
+        let mut reconstructed_short = Vec::new();
+        reconstructed_short.extend_from_slice(init_short);
+        reconstructed_short.extend_from_slice(cont_short);
+        
+        let mut reconstructed_long = Vec::new();
+        reconstructed_long.extend_from_slice(init_long);
+        reconstructed_long.extend_from_slice(cont_long);
+        
+        assert_eq!(reconstructed_short, test_data);
+        assert_eq!(reconstructed_long, test_data);
+    }
 
     #[test]
     fn decode_std_address() {

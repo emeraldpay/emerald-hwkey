@@ -11,6 +11,8 @@ pub mod shared;
 mod speculos;
 #[cfg(feature = "speculos")]
 pub mod speculos_api;
+#[cfg(test)]
+pub mod mock;
 
 pub use {
     direct::LedgerHidKey,

@@ -135,7 +135,9 @@ By default, it uses a single instance of HID connection shared between different
 
 == License
 
-Copyright 2025 EmeraldPay
+The license below is applied only to the source code of this project. The docs for 3rd party components (in `./reference/`) are under their own licenses, which are not affected by this license.
+
+Copyright 2025 EmeraldPay, Ltd
 
 Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
 You may obtain a copy of the License at

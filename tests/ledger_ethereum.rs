@@ -165,6 +165,34 @@ mod mainnet {
         )
     }
 
+    #[test]
+    pub fn sign_eip712_message() {
+        common::init();
+        let mut manager = common::create_instance();
+        manager.connect().expect("Not connected");
+        let app = manager.access::<EthereumApp>().unwrap();
+
+        // Address: 0x3d66483b4Cad3518861029Ff86a387eBc4705172
+        let hdpath = StandardHDPath::try_from("m/44'/60'/0'/0/0").expect("Invalid HDPath");
+
+        let mut domain_hash = [0u8; 32];
+        hex::decode_to_slice("550ec1f194f472d2c84fbf85bcb230090c5f382f5ed7df45a1071a8e2c0a5177", &mut domain_hash).unwrap();
+        let mut message_hash = [0u8; 32];
+        hex::decode_to_slice("8391eb27569cbd00047175269d5198ac32accfa30488afb2e86aa8b39883e897", &mut message_hash).unwrap();
+
+        let signature = app.sign_message_eip712(
+            &domain_hash,
+            &message_hash,
+            &hdpath,
+        ).expect("Failed to sign EIP-712 message");
+
+        assert_eq!(
+            hex::encode(signature),
+            // v, r, s
+            "1b34ad89a26f346e7c488bfb9a1f4078b415a6fe4f0fdca025653b9b833545fb7c4f07ce6e0cfc93f1d5dcae29704955b3b7d6dcdbc8509933a0940b5242c2761c"
+        );
+    }
+
 
 }
 

@@ -24,7 +24,9 @@ const COMMAND_GET_ADDRESS: u8 = 0x02;
 const COMMAND_SIGN_TRANSACTION: u8 = 0x04;
 const COMMAND_SIGN_MESSAGE: u8 = 0x08;
 const COMMAND_APP_CONFIG: u8 = 0x06;
+const COMMAND_SIGN_EIP712: u8 = 0x0C;
 
+/// V-R-S data, but Ethereum uses R-S-V
 pub type SignatureBytes = [u8; ECDSA_SIGNATURE_BYTES];
 
 pub struct EthereumApp {
@@ -279,7 +281,8 @@ impl EthereumApp {
         message_data.extend_from_slice((message.len() as u32).to_be_bytes().as_slice());
         message_data.extend_from_slice(message);
         let message_data = message_data.as_slice();
-        
+
+        // NOTE: it comes as V-R-S, though the EIP-191 spec defines it as R-S-V.
         let res = self.send_chunked_data(COMMAND_SIGN_MESSAGE, hd_path, message_data)?;
         debug!("Received signature: {:?}", hex::encode(&res));
         match res.len() {
@@ -294,6 +297,66 @@ impl EthereumApp {
                 ECDSA_SIGNATURE_BYTES, v
             ))),
         } 
+    }
+
+    /// Sign a message as per EIP-712 (v0 implementation - simple signing with hashes only).
+    /// This implementation requires the domain hash and message hash to be pre-computed
+    /// and provided to the device for signing.
+    /// 
+    /// The Ledger displays the hashes to the user for validation before signing.
+    /// This command has been supported since app version 1.5.0
+    ///
+    /// # Arguments
+    /// * `domain_hash` - The 32-byte domain hash (keccak256 of the domain separator)
+    /// * `message_hash` - The 32-byte message hash (keccak256 of the message)
+    /// * `hd_path` - HD path for the signing key
+    ///
+    /// # Protocol Details
+    /// According to the Ledger Ethereum specification (reference/ledger-ethereum.adoc),
+    /// for the v0 implementation, the data sent is:
+    /// - HD path
+    /// - Domain hash (32 bytes)
+    /// - Message hash (32 bytes)
+    /// 
+    /// # See
+    /// - https://github.com/ethereum/EIPs/blob/master/EIPS/eip-712.md
+    /// - reference/ledger-ethereum.adoc section "SIGN ETH EIP 712"
+    pub fn sign_message_eip712(
+        &self,
+        domain_hash: &[u8; 32],
+        message_hash: &[u8; 32],
+        hd_path: &dyn HDPath,
+    ) -> Result<SignatureBytes, HWKeyError> {
+        // Prepare the data payload: domain_hash + message_hash
+        let mut data = Vec::<u8>::with_capacity(64);
+        data.extend_from_slice(domain_hash);
+        data.extend_from_slice(message_hash);
+
+        let apdu = ApduBuilder::new(COMMAND_SIGN_EIP712)
+            .with_p1(0x00)
+            // 00 for v0 implementation (simple signing with hashes only)
+            .with_p2(0x00)
+            .with_data(hd_path.to_bytes().as_slice())
+            .with_data(&data)
+            .build();
+
+        let mut handle = self.ledger.lock().unwrap();
+
+        // NOTE: it comes as V-R-S, though the EIP-712 spec defines it as R-S-V.
+        let res = sendrecv(&mut *handle, &apdu)?;
+        
+        debug!("Received EIP-712 signature: {:?}", hex::encode(&res));
+        match res.len() {
+            ECDSA_SIGNATURE_BYTES => {
+                let mut val: SignatureBytes = [0; ECDSA_SIGNATURE_BYTES];
+                val.copy_from_slice(&res);
+                Ok(val)
+            }
+            v => Err(HWKeyError::CryptoError(format!(
+                "Invalid EIP-712 signature length. Expected: {}, received: {}",
+                ECDSA_SIGNATURE_BYTES, v
+            ))),
+        }
     }
 
     pub fn get_version(&self) -> Result<AppVersion, HWKeyError> {

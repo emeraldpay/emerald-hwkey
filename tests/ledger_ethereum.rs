@@ -161,7 +161,7 @@ mod mainnet {
         assert_eq!(
             hex::encode(signature),
             // v, r, s
-            "1b39b071c236a7912e9ead0f4d7793aac98651d119b82929064882f573716582fa72390e878997d8026b5c062f34c49d35f488cebf5aefe14e9352fe809914363a"
+            "39b071c236a7912e9ead0f4d7793aac98651d119b82929064882f573716582fa72390e878997d8026b5c062f34c49d35f488cebf5aefe14e9352fe809914363a1b"
         )
     }
 
@@ -189,7 +189,7 @@ mod mainnet {
         assert_eq!(
             hex::encode(signature),
             // v, r, s
-            "1b34ad89a26f346e7c488bfb9a1f4078b415a6fe4f0fdca025653b9b833545fb7c4f07ce6e0cfc93f1d5dcae29704955b3b7d6dcdbc8509933a0940b5242c2761c"
+            "34ad89a26f346e7c488bfb9a1f4078b415a6fe4f0fdca025653b9b833545fb7c4f07ce6e0cfc93f1d5dcae29704955b3b7d6dcdbc8509933a0940b5242c2761c1b"
         );
     }
 

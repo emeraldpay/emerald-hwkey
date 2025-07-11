@@ -26,8 +26,51 @@ const COMMAND_SIGN_MESSAGE: u8 = 0x08;
 const COMMAND_APP_CONFIG: u8 = 0x06;
 const COMMAND_SIGN_EIP712: u8 = 0x0C;
 
-/// V-R-S data, but Ethereum uses R-S-V
-pub type SignatureBytes = [u8; ECDSA_SIGNATURE_BYTES];
+/// The signature as it's used in Ethereum
+/// R-S-V as 65 bytes
+/// i.e., 32 bytes for R, 32 bytes for S, and 1 byte for V
+///
+#[derive(Clone, Eq, PartialEq, Hash)]
+pub struct SignatureBytes([u8; ECDSA_SIGNATURE_BYTES]);
+
+impl SignatureBytes {
+
+    /// Ledger answers with V-R-S, but Ethereum uses R-S-V, so here we move that byte to the end (and move others to the left)
+    pub fn from_ledger_bytes(bytes: &[u8]) -> Result<Self, HWKeyError> {
+        if bytes.len() != ECDSA_SIGNATURE_BYTES {
+            return Err(HWKeyError::CryptoError(format!(
+                "Invalid signature length. Expected: {}, received: {}",
+                ECDSA_SIGNATURE_BYTES, bytes.len()
+            )));
+        }
+        let mut val: [u8; ECDSA_SIGNATURE_BYTES] = [0; ECDSA_SIGNATURE_BYTES];
+        val[0..64].copy_from_slice(&bytes[1..65]);
+        val[64] = bytes[0];
+        Ok(SignatureBytes(val))
+    }
+
+    pub fn to_vec(&self) -> Vec<u8> {
+        self.0.to_vec()
+    }
+}
+
+impl std::fmt::Debug for SignatureBytes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "0x{}", hex::encode(self.0))
+    }
+}
+
+impl AsRef<[u8]> for SignatureBytes {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl AsRef<[u8; ECDSA_SIGNATURE_BYTES]> for SignatureBytes {
+    fn as_ref(&self) -> &[u8; ECDSA_SIGNATURE_BYTES] {
+        &self.0
+    }
+}
 
 pub struct EthereumApp {
     ledger: Arc<Mutex<dyn LedgerTransport>>
@@ -236,19 +279,9 @@ impl EthereumApp {
         // Send RLP transaction data directly without length prefix
         // as per SIGN ETH TRANSACTION specification
         let res = self.send_chunked_data(COMMAND_SIGN_TRANSACTION, hd_path, tx)?;
-        debug!("Received signature: {:?}", hex::encode(&res));
-        match res.len() {
-            ECDSA_SIGNATURE_BYTES => {
-                let mut val: SignatureBytes = [0; ECDSA_SIGNATURE_BYTES];
-                val.copy_from_slice(&res);
-
-                Ok(val)
-            }
-            v => Err(HWKeyError::CryptoError(format!(
-                "Invalid signature length. Expected: {}, received: {}",
-                ECDSA_SIGNATURE_BYTES, v
-            ))),
-        }
+        let signature = SignatureBytes::from_ledger_bytes(res.as_slice())?;
+        debug!("Received signature: {:?}", signature);
+        Ok(signature)
     }
 
     /// Sign a message as per ERC-191.
@@ -282,21 +315,10 @@ impl EthereumApp {
         message_data.extend_from_slice(message);
         let message_data = message_data.as_slice();
 
-        // NOTE: it comes as V-R-S, though the EIP-191 spec defines it as R-S-V.
         let res = self.send_chunked_data(COMMAND_SIGN_MESSAGE, hd_path, message_data)?;
-        debug!("Received signature: {:?}", hex::encode(&res));
-        match res.len() {
-            ECDSA_SIGNATURE_BYTES => {
-                let mut val: SignatureBytes = [0; ECDSA_SIGNATURE_BYTES];
-                val.copy_from_slice(&res);
-
-                Ok(val)
-            }
-            v => Err(HWKeyError::CryptoError(format!(
-                "Invalid signature length. Expected: {}, received: {}",
-                ECDSA_SIGNATURE_BYTES, v
-            ))),
-        } 
+        let signature = SignatureBytes::from_ledger_bytes(res.as_slice())?;
+        debug!("Received signature: {:?}", signature);
+        Ok(signature)
     }
 
     /// Sign a message as per EIP-712 (v0 implementation - simple signing with hashes only).
@@ -342,21 +364,10 @@ impl EthereumApp {
 
         let mut handle = self.ledger.lock().unwrap();
 
-        // NOTE: it comes as V-R-S, though the EIP-712 spec defines it as R-S-V.
         let res = sendrecv(&mut *handle, &apdu)?;
-        
-        debug!("Received EIP-712 signature: {:?}", hex::encode(&res));
-        match res.len() {
-            ECDSA_SIGNATURE_BYTES => {
-                let mut val: SignatureBytes = [0; ECDSA_SIGNATURE_BYTES];
-                val.copy_from_slice(&res);
-                Ok(val)
-            }
-            v => Err(HWKeyError::CryptoError(format!(
-                "Invalid EIP-712 signature length. Expected: {}, received: {}",
-                ECDSA_SIGNATURE_BYTES, v
-            ))),
-        }
+        let signature = SignatureBytes::from_ledger_bytes(res.as_slice())?;
+        debug!("Received EIP-712 signature: {:?}", signature);
+        Ok(signature)
     }
 
     pub fn get_version(&self) -> Result<AppVersion, HWKeyError> {

@@ -5,6 +5,9 @@ pub enum HWKeyError {
     /// Device is unavailable
     Unavailable,
 
+    /// Device is unsupported
+    Unsupported(u16),
+
     DeviceLocked,
 
     /// Received an empty frame. Usually means a timeout.
@@ -50,6 +53,7 @@ impl fmt::Display for HWKeyError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             HWKeyError::Unavailable => write!(f, "HWKey Unavailable"),
+            HWKeyError::Unsupported(pid) => write!(f, "HWKey Unsupported device with PID: 0x{:04x}", pid),
             HWKeyError::EmptyResponse => write!(f, "HWKey no answer"),
             HWKeyError::CryptoError(ref str) => write!(f, "HWKey error: {}", str),
             HWKeyError::CommError(ref str) => write!(f, "Communication protocol error: {}", str),

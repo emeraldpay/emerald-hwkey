@@ -1,5 +1,46 @@
 = Ledger
 
+== Vendor
+
+USB Vendor ID: `0x2c97`
+
+== Models
+
+Uses `MMII` pattern, encoding a model (MM) and an interface bitfield (II).
+With some exceptions for legacy hardware as `0I`, though, we see the same device replying with `MMII` and `0I`.
+
+|===
+| Device            | Legacy    | MM
+| Ledger Blue       | 0x0000    | 0x00
+| Ledger Nano S     | 0x0001    | 0x10
+| Ledger Nano X     | 0x0004    | 0x40
+| Ledger Nano S+    | 0x0005    | 0x50
+| Ledger Stax       | 0x0006    | 0x60
+| Ledger Flex       | 0x0007    | 0x70
+|===
+
+For ths `II` it's the following bits:
+
+* Generic HID : 0x01
+* Keyboard HID : 0x02
+* U2F : 0x04
+* CCID : 0x08
+* WebUSB : 0x10
+
+I.e., the logic is:
+
+- if it's < `0xff` then it's a legacy identifier.
+- otherwise `>> 8` and check the `MM` ids.
+- if it's > `0xff` then also check the `II` part.
+
+.Examples:
+- `0x1011` - Ledger Nano S, HID + WebUSB
+- `0x4015` - Ledger Nano X, HID + U2F + WebUSB
+
+.Reference:
+- https://developers.ledger.com/docs/device-interaction/references/identifiers
+- https://github.com/LedgerHQ/ledger-live/blob/develop/libs/ledgerjs/packages/devices/src/index.ts
+
 == Apps
 
 === Ethereum

@@ -1,6 +1,7 @@
 /*
 Copyright 2019 ETCDEV GmbH
 Copyright 2020 EmeraldPay, Inc
+Copyright 2025 EmeraldPay Ltd
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -31,34 +32,157 @@ use crate::ledger::comm::LedgerTransport;
 use crate::ledger::connect::LedgerKey;
 
 pub const CHUNK_SIZE: usize = 255;
+pub const LEDGER_VID: u16 = 0x2c97; // 11415
 
+/// Ledger device interface types based on the MMII pattern
+/// Uses the II (interface bitfield) part of the product ID
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum LedgerInterface {
+    /// Legacy interface for older devices (no bitfield)
+    Legacy,
+    /// Defined interface using the II bitfield pattern
+    Defined(u16),
+}
 
-// reference:
-// - https://github.com/LedgerHQ/ledger-live/blob/ff0897c2d317d06f5d439e0884dc48ad9ae7315a/android/app/src/main/res/xml/usb_device_filter.xml
-//
-const LEDGER_VID: u16 = 0x2c97; // 11415
-const LEDGER_S_PID_1: u16 = 0x0001; // 1    - for Nano S model with Bitcoin App
-const LEDGER_S_PID_2: u16 = 0x1011; // 4113 - for Nano S model without any app. also called Nano S16 in Ledger sources
-const LEDGER_S_PID_3: u16 = 0x1015; // 4117 - for Nano S model with Ethereum or Ethereum Classic App
+impl LedgerInterface {
+    /// Check if Generic HID is supported
+    pub fn has_generic_hid(&self) -> bool {
+        match self {
+            LedgerInterface::Legacy => true,
+            LedgerInterface::Defined(bits) => (bits & 0x01) != 0,
+        }
+    }
 
-const LEDGER_X_PID_1: u16 = 0x0004; // 4     - Nano X model, official
-const LEDGER_X_PID_2: u16 = 0x4011; // 16401 - Nano X model, some versions
-const LEDGER_X_PID_3: u16 = 0x4015; // 16405 - Nano X model, some versions, with Ethereum App or Bitcoin App
-const LEDGER_X_PID_4: u16 = 0x40;   // 64    - Nano X, new official
+    /// Check if Keyboard HID is supported
+    pub fn has_keyboard_hid(&self) -> bool {
+        match self {
+            LedgerInterface::Legacy => false,
+            LedgerInterface::Defined(bits) => (bits & 0x02) != 0,
+        }
+    }
+
+    /// Check if U2F is supported
+    pub fn has_u2f(&self) -> bool {
+        match self {
+            LedgerInterface::Legacy => false,
+            LedgerInterface::Defined(bits) => (bits & 0x04) != 0,
+        }
+    }
+
+    /// Check if CCID is supported
+    pub fn has_ccid(&self) -> bool {
+        match self {
+            LedgerInterface::Legacy => false,
+            LedgerInterface::Defined(bits) => (bits & 0x08) != 0,
+        }
+    }
+
+    /// Check if WebUSB is supported
+    pub fn has_webusb(&self) -> bool {
+        match self {
+            LedgerInterface::Legacy => false,
+            LedgerInterface::Defined(bits) => (bits & 0x10) != 0,
+        }
+    }
+}
+
+/// Ledger device models with their supported interfaces
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum LedgerDevice {
+    /// Ledger Blue device
+    Blue(LedgerInterface),
+    /// Ledger Nano S device
+    Nano(LedgerInterface),
+    /// Ledger Nano X device
+    NanoX(LedgerInterface),
+    /// Ledger Nano S+ device
+    NanoSPlus(LedgerInterface),
+    /// Ledger Stax device
+    Stax(LedgerInterface),
+    /// Ledger Flex device
+    Flex(LedgerInterface),
+}
+
+impl TryFrom<u16> for LedgerDevice {
+    type Error = HWKeyError;
+
+    fn try_from(pid: u16) -> Result<Self, Self::Error> {
+        match pid {
+            // Legacy devices (< 0xff)
+            0x0000 => Ok(LedgerDevice::Blue(LedgerInterface::Legacy)),
+            0x0001 => Ok(LedgerDevice::Nano(LedgerInterface::Legacy)),
+            0x0004 => Ok(LedgerDevice::NanoX(LedgerInterface::Legacy)),
+            0x0005 => Ok(LedgerDevice::NanoSPlus(LedgerInterface::Legacy)),
+            0x0006 => Ok(LedgerDevice::Stax(LedgerInterface::Legacy)),
+            0x0007 => Ok(LedgerDevice::Flex(LedgerInterface::Legacy)),
+
+            // Special case for Nano X legacy
+            // TODO do we still need this? verify
+            0x0040 => Ok(LedgerDevice::NanoX(LedgerInterface::Legacy)),
+            
+            // MMII pattern devices (>= 0xff)
+            pid if pid >= 0xff => {
+                let mm = (pid >> 8) & 0xff;
+                let ii = pid & 0xff;
+                let interface = LedgerInterface::Defined(ii);
+                
+                match mm {
+                    0x00 => Ok(LedgerDevice::Blue(interface)),
+                    0x10 => Ok(LedgerDevice::Nano(interface)),
+                    0x40 => Ok(LedgerDevice::NanoX(interface)),
+                    0x50 => Ok(LedgerDevice::NanoSPlus(interface)),
+                    0x60 => Ok(LedgerDevice::Stax(interface)),
+                    0x70 => Ok(LedgerDevice::Flex(interface)),
+                    _ => Err(HWKeyError::Unsupported(pid)),
+                }
+            }
+            
+            _ => Err(HWKeyError::Unsupported(pid)),
+        }
+    }
+}
+
+impl LedgerDevice {
+    /// Get the device interface
+    pub fn interface(&self) -> &LedgerInterface {
+        match self {
+            LedgerDevice::Blue(interface) => interface,
+            LedgerDevice::Nano(interface) => interface,
+            LedgerDevice::NanoX(interface) => interface,
+            LedgerDevice::NanoSPlus(interface) => interface,
+            LedgerDevice::Stax(interface) => interface,
+            LedgerDevice::Flex(interface) => interface,
+        }
+    }
+
+    /// Get the device model name
+    pub fn model_name(&self) -> &'static str {
+        match self {
+            LedgerDevice::Blue(_) => "Ledger Blue",
+            LedgerDevice::Nano(_) => "Ledger Nano S",
+            LedgerDevice::NanoX(_) => "Ledger Nano X",
+            LedgerDevice::NanoSPlus(_) => "Ledger Nano S+",
+            LedgerDevice::Stax(_) => "Ledger Stax",
+            LedgerDevice::Flex(_) => "Ledger Flex",
+        }
+    }
+}
 
 /// Type used for device listing,
 /// String corresponds to file descriptor of the device
 pub type DevicesList = Vec<(String, String)>;
 
-///
+/// Device information for connected Ledger devices
 #[derive(Debug)]
-struct Device {
-    ///
+struct ConnectedDevice {
+    /// File descriptor path
     fd: String,
-    ///
+    /// Device address
     address: String,
-    ///
+    /// HID device information
     hid_info: DeviceInfo,
+    /// Ledger device type
+    ledger_device: LedgerDevice,
 }
 
 #[derive(Clone, Debug)]
@@ -84,26 +208,32 @@ impl Default for AppDetails {
     }
 }
 
-impl PartialEq for Device {
-    fn eq(&self, other: &Device) -> bool {
+impl PartialEq for ConnectedDevice {
+    fn eq(&self, other: &ConnectedDevice) -> bool {
         self.fd == other.fd
     }
 }
 
-impl From<&DeviceInfo> for Device {
-    fn from(hid_info: &DeviceInfo) -> Self {
+impl TryFrom<&DeviceInfo> for ConnectedDevice {
+    type Error = HWKeyError;
+    
+    fn try_from(hid_info: &DeviceInfo) -> Result<Self, Self::Error> {
         let info = hid_info.clone();
-        Self::from(info)
+        Self::try_from(info)
     }
 }
 
-impl From<DeviceInfo> for Device {
-    fn from(hid_info: DeviceInfo) -> Self {
-        Device {
+impl TryFrom<DeviceInfo> for ConnectedDevice {
+    type Error = HWKeyError;
+    
+    fn try_from(hid_info: DeviceInfo) -> Result<Self, Self::Error> {
+        let ledger_device = LedgerDevice::try_from(hid_info.product_id())?;
+        Ok(ConnectedDevice {
             fd: hid_info.path().to_string_lossy().to_string(),
             address: "".to_string(),
+            ledger_device,
             hid_info,
-        }
+        })
     }
 }
 
@@ -113,7 +243,7 @@ pub struct LedgerHidKey {
     hid: Arc<Mutex<HidApi>>,
 
     /// List of available wallets
-    device: Option<Device>,
+    device: Option<ConnectedDevice>,
 }
 
 ///
@@ -146,6 +276,11 @@ impl LedgerHidKey {
 
     pub fn have_device(&self) -> bool {
         self.device.is_some()
+    }
+
+    /// Get the connected Ledger device type
+    pub fn ledger_device(&self) -> Option<&LedgerDevice> {
+        self.device.as_ref().map(|d| &d.ledger_device)
     }
 
     pub(crate) fn device(&self) -> Result<HidDevice, HWKeyError> {
@@ -238,13 +373,7 @@ impl LedgerKey for LedgerHidKey {
             let device = hid.device_list().find(|hid_info| {
                 trace!("device {:?}", hid_info);
                 hid_info.vendor_id() == LEDGER_VID
-                    && (hid_info.product_id() == LEDGER_S_PID_1
-                    || hid_info.product_id() == LEDGER_S_PID_2
-                    || hid_info.product_id() == LEDGER_S_PID_3
-                    || hid_info.product_id() == LEDGER_X_PID_1
-                    || hid_info.product_id() == LEDGER_X_PID_2
-                    || hid_info.product_id() == LEDGER_X_PID_3
-                    || hid_info.product_id() == LEDGER_X_PID_4)
+                    && LedgerDevice::try_from(hid_info.product_id()).is_ok()
             }).map(|hid_info| hid_info.clone());
 
             device
@@ -260,7 +389,7 @@ impl LedgerKey for LedgerHidKey {
         debug!("Connecting to {:?}", current.as_ref().unwrap());
 
         let hid_info = current.unwrap();
-        let d = Device::from(hid_info);
+        let d = ConnectedDevice::try_from(hid_info)?;
         self.device = Some(d);
 
         Ok(())
@@ -340,10 +469,8 @@ impl TryFrom<Vec<u8>> for LedgerDetails {
 #[allow(unused_imports)]
 mod tests {
     use core::convert::TryFrom;
-    use crate::ledger::connect::direct::AppDetails;
-    use crate::ledger::connect::direct::LedgerDetails;
-    use crate::ledger::connect::direct::read_string;
-    use crate::ledger::connect::direct::read_slice;
+    use crate::ledger::connect::direct::{AppDetails, LedgerDetails, LedgerDevice, LedgerInterface};
+    use crate::ledger::connect::direct::{read_string, read_slice};
 
     #[test]
     pub fn can_read_string() {
@@ -456,6 +583,57 @@ mod tests {
         let act = act.unwrap();
         assert_eq!(act.firmware_version, "1.2.4-1");
         assert_eq!(act.mcu_version, "2.8");
+    }
+
+    #[test]
+    pub fn test_ledger_device_from_pid() {
+        // Test legacy devices
+        assert_eq!(LedgerDevice::try_from(0x0000).unwrap(), LedgerDevice::Blue(LedgerInterface::Legacy));
+        assert_eq!(LedgerDevice::try_from(0x0001).unwrap(), LedgerDevice::Nano(LedgerInterface::Legacy));
+        assert_eq!(LedgerDevice::try_from(0x0004).unwrap(), LedgerDevice::NanoX(LedgerInterface::Legacy));
+        assert_eq!(LedgerDevice::try_from(0x0040).unwrap(), LedgerDevice::NanoX(LedgerInterface::Legacy));
+        
+        // Test MMII pattern devices
+        assert_eq!(LedgerDevice::try_from(0x1011).unwrap(), LedgerDevice::Nano(LedgerInterface::Defined(0x11)));
+        assert_eq!(LedgerDevice::try_from(0x1015).unwrap(), LedgerDevice::Nano(LedgerInterface::Defined(0x15)));
+        assert_eq!(LedgerDevice::try_from(0x4011).unwrap(), LedgerDevice::NanoX(LedgerInterface::Defined(0x11)));
+        assert_eq!(LedgerDevice::try_from(0x4015).unwrap(), LedgerDevice::NanoX(LedgerInterface::Defined(0x15)));
+        
+        // Test unknown device
+        match LedgerDevice::try_from(0xFFFF) {
+            Err(crate::errors::HWKeyError::Unsupported(pid)) => {
+                assert_eq!(pid, 0xFFFF);
+            },
+            _ => panic!("Expected Unsupported error"),
+        }
+    }
+
+    #[test]
+    pub fn test_ledger_interface_features() {
+        let legacy = LedgerInterface::Legacy;
+        assert!(legacy.has_generic_hid());
+        assert!(!legacy.has_keyboard_hid());
+        assert!(!legacy.has_u2f());
+        assert!(!legacy.has_ccid());
+        assert!(!legacy.has_webusb());
+        
+        let defined = LedgerInterface::Defined(0x15); // HID + U2F + WebUSB
+        assert!(defined.has_generic_hid());
+        assert!(!defined.has_keyboard_hid());
+        assert!(defined.has_u2f());
+        assert!(!defined.has_ccid());
+        assert!(defined.has_webusb());
+    }
+
+    #[test]
+    pub fn test_ledger_device_methods() {
+        let device = LedgerDevice::Nano(LedgerInterface::Defined(0x11));
+        assert_eq!(device.model_name(), "Ledger Nano S");
+        assert_eq!(device.interface(), &LedgerInterface::Defined(0x11));
+        
+        let device_x = LedgerDevice::NanoX(LedgerInterface::Legacy);
+        assert_eq!(device_x.model_name(), "Ledger Nano X");
+        assert_eq!(device_x.interface(), &LedgerInterface::Legacy);
     }
 
 

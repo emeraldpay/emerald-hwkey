@@ -80,8 +80,8 @@ pub trait PubkeyAddressApp {
         let result = Xpub {
             network,
             depth: hd_path.len(),
-            public_key: bitcoin_lib::secp256k1::PublicKey::from(pubkey.as_pubkey().clone()),
-            chain_code: pubkey.as_chaincode().clone(),
+            public_key: *pubkey.as_pubkey(),
+            chain_code: *pubkey.as_chaincode(),
             child_number: match index {
                 PathValue::Hardened(i) => ChildNumber::from_hardened_idx(i).unwrap(),
                 PathValue::Normal(i) => ChildNumber::from_normal_idx(i).unwrap(),

@@ -1,0 +1,25 @@
+= Bitcoin Specifications related to emerald-hwkey
+
+NOTE: This document contains Bitcoin-specific technical specifications and references used by the emerald-hwkey library and it doesn't cover the general Bitcoin protocol.
+
+== DER Signature Format
+
+Bitcoin uses DER (Distinguished Encoding Rules) encoded ECDSA signatures in transactions. This is a subset of the ASN.1 BER encoding rules that ensures canonical encoding.
+A DER signature consists of:
+
+----
+0x30 [total-length] 0x02 [R-length] [R] 0x02 [S-length] [S]
+----
+
+.Where:
+- `0x30` is a tag for signature
+- `total-length` is the total length of the remaining signature data
+- `0x02` is the INTEGER tag for R and S components
+- `R-length` and `S-length` are the lengths of the R and S components
+- `[R]` and `[S]` are the actual signature components
+
+== References
+
+- **Bitcoin Stack Exchange - DER and SEC Format**: https://bitcoin.stackexchange.com/questions/92680/what-are-the-der-signature-and-sec-format
+- **Bitcoin Wiki - Transaction Format**: https://en.bitcoin.it/wiki/Transaction
+- **BIP 66 - Strict DER Signatures**: https://github.com/bitcoin/bips/blob/master/bip-0066.mediawiki

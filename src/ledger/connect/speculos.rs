@@ -31,11 +31,7 @@ impl LedgerSpeculosKey {
             return false
         }
         let conn = conn.unwrap();
-        if let Ok(avail) = conn.is_available() {
-            avail
-        } else {
-            false
-        }
+        conn.is_available().unwrap_or_default()
     }
 
 }

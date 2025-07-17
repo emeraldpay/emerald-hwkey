@@ -37,7 +37,7 @@ impl From<io::Error> for HWKeyError {
     }
 }
 
-impl<'a> From<&'a str> for HWKeyError {
+impl From<&str> for HWKeyError {
     fn from(err: &str) -> Self {
         HWKeyError::OtherError(err.to_string())
     }
@@ -73,7 +73,26 @@ impl error::Error for HWKeyError {
 
     fn cause(&self) -> Option<&dyn error::Error> {
         match *self {
+            HWKeyError::InvalidResponse(ref e) => Some(e),
             _ => None,
         }
+    }
+}
+
+impl fmt::Display for ResponseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            ResponseError::ShortLedgerVersion => write!(f, "Short Ledger version response"),
+        }
+    }
+}
+
+impl error::Error for ResponseError {
+    fn description(&self) -> &str {
+        "Response error"
+    }
+
+    fn cause(&self) -> Option<&dyn error::Error> {
+        None
     }
 }

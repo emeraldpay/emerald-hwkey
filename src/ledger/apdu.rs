@@ -19,7 +19,7 @@ use std::fmt;
 
 pub const APDU_HEADER_SIZE: usize = 0x05;
 
-///
+#[allow(clippy::upper_case_acronyms)]
 pub struct APDU {
     pub cla: u8,
     pub ins: u8,
@@ -31,7 +31,7 @@ pub struct APDU {
 
 impl fmt::Debug for APDU {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let d = hex::encode(&self.data.clone());
+        let d = hex::encode(self.data.clone());
         write!(
             f,
             "APDU {{ cla: 0x{:02x}, ins: 0x{:02x}, p1: 0x{:02x}, p2: 0x{:02x}, len: {}, data: {:?} }}",
@@ -93,8 +93,7 @@ pub struct ApduBuilder {
 impl ApduBuilder {
     ///  Create new Builder
     pub fn new(cmd: u8) -> Self {
-        let mut apdu = APDU::default();
-        apdu.ins = cmd;
+        let apdu = APDU { ins: cmd, ..Default::default() };
 
         Self { apdu }
     }

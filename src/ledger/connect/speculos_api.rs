@@ -1,6 +1,5 @@
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use ureq::post;
 use crate::errors::HWKeyError;
 use crate::ledger::comm::LedgerTransport;
 use std::env;
@@ -144,14 +143,14 @@ impl Speculos {
             .collect();
 
         if clear {
-            let _ = self.delete_events()?;
+            self.delete_events()?;
         }
         Ok(events)
     }
 
     pub fn press_right_until<F>(&self, limit: usize, check: F) -> Result<(), ()>
         where F: Fn((String, String)) -> bool {
-        let mut found = false;
+        let found = false;
         let mut tries = 0;
         while !found && tries < limit {
             tries += 1;
@@ -166,22 +165,22 @@ impl Speculos {
             if check(pair) {
                 return Ok(())
             }
-            let _ = self.press(Button::Right).map_err(|_| ())?;
+            self.press(Button::Right).map_err(|_| ())?;
         }
         Err(())
     }
 
     pub fn accept_on_screen(&self) -> Result<(), HWKeyError> {
-        let _ = self.press_right_until(10, |e| e.0.eq("Accept"))
+        self.press_right_until(10, |e| e.0.eq("Accept"))
             .map_err(|_| HWKeyError::CommError("Accept button not found".to_string()))?;
-        let _ = self.press(Button::Both)?;
+        self.press(Button::Both)?;
         Ok(())
     }
 
     pub fn reject_on_screen(&self) -> Result<(), HWKeyError> {
-        let _ = self.press_right_until(10, |e| e.0.eq("Reject"))
+        self.press_right_until(10, |e| e.0.eq("Reject"))
             .map_err(|_| HWKeyError::CommError("Reject button not found".to_string()))?;
-        let _ = self.press(Button::Both)?;
+        self.press(Button::Both)?;
         Ok(())
     }
 
@@ -195,7 +194,7 @@ impl Speculos {
             } else {
                 Ok(true)
             },
-            Err(e) => Ok(false)
+            Err(_) => Ok(false)
         }
     }
 }
@@ -221,7 +220,7 @@ impl LedgerTransport for Speculos {
         // Buffer all frames to send as a single APDU command
         //-----
         if state.out_len == 0 {
-            state.out_len = (data[6] as usize) << 8 | (data[7] as usize);
+            state.out_len = ((data[6] as usize) << 8) | (data[7] as usize);
             state.out_buf.extend_from_slice(&data[8..]);
         } else {
             state.out_buf.extend_from_slice(&data[6..]);
@@ -286,7 +285,7 @@ impl LedgerTransport for Speculos {
         Ok(size + header_size)
     }
 
-    fn read_timeout(&self, buf: &mut [u8], timeout_ms: i32) -> Result<usize, HWKeyError> {
+    fn read_timeout(&self, buf: &mut [u8], _timeout_ms: i32) -> Result<usize, HWKeyError> {
         self.read(buf)
     }
 

@@ -27,7 +27,7 @@ pub struct LedgerKeyShared<LK: LedgerKey> {
 
 impl<LK: LedgerKey> Clone for LedgerKeyShared<LK> {
     fn clone(&self) -> Self {
-        Self { t: self.t.clone(), channel: self.channel.clone(), state: self.state.clone() }
+        Self { t: self.t, channel: self.channel.clone(), state: self.state.clone() }
     }
 }
 
@@ -97,7 +97,7 @@ impl<LK: LedgerKey> LedgerKeyShared<LK> {
         let (tx, rx) = channel();
         let state = Arc::new(RwLock::new(State::Init));
         Self::run(rx, state.clone());
-        Self { t: PhantomData::default(), channel: tx, state }
+        Self { t: PhantomData, channel: tx, state }
     }
 
     fn is_working(&self) -> bool {
@@ -121,11 +121,7 @@ impl<LK: LedgerKey> LedgerKeyShared<LK> {
             log::error!("Error sending command: {:?}", e);
             return false
         }
-        if let Ok(connected) = rx.recv() {
-            connected
-        } else {
-            false
-        }
+        rx.recv().unwrap_or_default()
     }
 
     fn set_disconnected(&self) {
@@ -196,7 +192,7 @@ impl<LK: LedgerKey> LedgerKeyShared<LK> {
                                                 *w = State::Disconnected;
                                             }
                                         }
-                                        let _ = resp.send(result.map_err(|e| e.into()));
+                                        let _ = resp.send(result);
 
                                     }
                                 }
@@ -209,7 +205,7 @@ impl<LK: LedgerKey> LedgerKeyShared<LK> {
                                     Some(hid) => {
                                         let mut data = [0u8; comm::HID_RPT_SIZE];
                                         let len = {
-                                            HidDevice::read_timeout(&hid, &mut data, timeout)
+                                            HidDevice::read_timeout(hid, &mut data, timeout)
                                                 .map_err(|e| HWKeyError::CommError(format!("{}", e)))
                                         };
                                         match len {
@@ -219,7 +215,7 @@ impl<LK: LedgerKey> LedgerKeyShared<LK> {
                                                     *w = State::Disconnected;
                                                 }
                                                 log::trace!("Disconnected due to error: {:?}", e);
-                                                let _ = resp.send(Err(e.into()));
+                                                let _ = resp.send(Err(e));
                                             }
                                             Ok(len) => {
                                                 let mut result = Vec::with_capacity(len);
@@ -301,11 +297,10 @@ impl<LK: LedgerKey> LedgerTransport for LedgerKeyShared<LK> {
             log::warn!("Error sending command: {:?}", e);
             return Err(HWKeyError::Unavailable)
         }
-        let result = rx.recv().unwrap_or_else(|e| {
+        rx.recv().unwrap_or_else(|e| {
             log::warn!("Error write receiving response: {:?}", e);
             Err(HWKeyError::Unavailable)
-        });
-        result
+        })
     }
     fn read(&self, buf: &mut [u8]) -> Result<usize, HWKeyError> {
         self.read_timeout(buf, -1)

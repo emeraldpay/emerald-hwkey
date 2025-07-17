@@ -127,9 +127,9 @@ impl TryFrom<Vec<u8>> for AddressResponse {
         let address = from_utf8(address)
             .map(|a| a.to_string())
             .map(|a| if a.starts_with("0x") { a } else { format!("0x{}", a)} )
-            .map_err(|e| HWKeyError::EncodingError(format!("Can't parse address: {}", e.to_string())))?;
+            .map_err(|e| HWKeyError::EncodingError(format!("Can't parse address: {}", e)))?;
 
-        let chaincode_len = 32 as usize;
+        let chaincode_len = 32_usize;
         let chaincode_start = address_end;
         let chaincode_end = chaincode_start + chaincode_len;
         if chaincode_end > value.len() {
@@ -137,7 +137,7 @@ impl TryFrom<Vec<u8>> for AddressResponse {
                 format!("Chaincode cutoff. {:?} > {:?}", chaincode_end, value.len())
             ))
         }
-        let chaincode = (&value[chaincode_start..chaincode_end]).to_vec();
+        let chaincode = value[chaincode_start..chaincode_end].to_vec();
         let chaincode = ChainCode::try_from(chaincode.as_slice()).unwrap();
 
         Ok(AddressResponse {
@@ -220,15 +220,15 @@ impl EthereumApp {
             .with_data(init)
             .build();
 
-        let mut handle = self.ledger.lock().unwrap();
-        let mut res = sendrecv(&mut *handle, &init_apdu)?;
+        let handle = self.ledger.lock().unwrap();
+        let mut res = sendrecv(&*handle, &init_apdu)?;
 
         for chunk in cont.chunks(CHUNK_SIZE) {
             let apdu_cont = ApduBuilder::new(command)
                 .with_p1(0x80)
                 .with_data(chunk)
                 .build();
-            res = sendrecv(&mut *handle, &apdu_cont)?;
+            res = sendrecv(&*handle, &apdu_cont)?;
         }
 
         Ok(res)
@@ -249,12 +249,12 @@ impl EthereumApp {
             .with_data(hd_path.to_bytes().as_slice())
             .build();
 
-        let mut ledger = self.ledger.lock().unwrap();
+        let ledger = self.ledger.lock().unwrap();
 
 
         // let mut handle = self.ledger.lock().unwrap().deref();
-        sendrecv(&mut *ledger, &apdu)
-            .and_then(|res| AddressResponse::try_from(res))
+        sendrecv(&*ledger, &apdu)
+            .and_then(AddressResponse::try_from)
     }
 
     /// Sign transaction
@@ -268,7 +268,7 @@ impl EthereumApp {
     /// transaction data is sent as:
     /// - First block: HD path + RLP transaction chunk (no length prefix)
     /// - Other blocks: RLP transaction chunk only
-    /// The RLP transaction data is sent directly without any length prefix.
+    ///   The RLP transaction data is sent directly without any length prefix.
     ///
     pub fn sign_transaction(
         &self,
@@ -297,7 +297,7 @@ impl EthereumApp {
     /// message data is sent as:
     /// - First block: HD path + Message length (4 bytes) + Message chunk
     /// - Other blocks: Message chunk only
-    /// The message data requires a 4-byte length prefix (big-endian) before the message content.
+    ///   The message data requires a 4-byte length prefix (big-endian) before the message content.
     ///
     /// # See 
     /// - https://github.com/LedgerHQ/app-ethereum/blob/d408c161dc43ce4640165464bd8a4f45d662a6f1/doc/ethapp.adoc#sign-eth-transaction
@@ -362,9 +362,9 @@ impl EthereumApp {
             .with_data(&data)
             .build();
 
-        let mut handle = self.ledger.lock().unwrap();
+        let handle = self.ledger.lock().unwrap();
 
-        let res = sendrecv(&mut *handle, &apdu)?;
+        let res = sendrecv(&*handle, &apdu)?;
         let signature = SignatureBytes::from_ledger_bytes(res.as_slice())?;
         debug!("Received EIP-712 signature: {:?}", signature);
         Ok(signature)
@@ -373,14 +373,13 @@ impl EthereumApp {
     pub fn get_version(&self) -> Result<AppVersion, HWKeyError> {
         let apdu = ApduBuilder::new(COMMAND_APP_CONFIG)
             .build();
-        let mut handle = self.ledger.lock().unwrap();
-        let resp = sendrecv(&mut *handle, &apdu)?;
+        let handle = self.ledger.lock().unwrap();
+        let resp = sendrecv(&*handle, &apdu)?;
         AppVersion::try_from(resp).map_err(|_| HWKeyError::EncodingError("Invalid version config".to_string()))
     }
 
     fn is_path_available(&self, hd_path: &dyn HDPath) -> bool {
-        self.get_address(hd_path, false)
-            .map_or(false, |_| true)
+        self.get_address(hd_path, false).is_ok_and(|_| true)
     }
 }
 
@@ -572,7 +571,7 @@ mod tests {
         assert_eq!("0x5Ad423f5eb4735415c93f0ce52f6e2c13BD6A500".to_string(), parsed.address);
         assert_eq!(
             "04b28217096d8ad3dd25461404c3941a5196ac8f089f1be5bcb62df2ce08a71ba1ca4b879ee38217cced7ef1c9dc5c15cb804ab159503514f73559d1a1192ba1fc",
-            hex::encode(parsed.pubkey.serialize_uncompressed().to_vec()));
+            hex::encode(parsed.pubkey.serialize_uncompressed()));
     }
 
     #[test]
@@ -584,6 +583,6 @@ mod tests {
         assert_eq!("0x3d66483b4Cad3518861029Ff86a387eBc4705172".to_string(), parsed.address);
         assert_eq!(
             "04452ae4b222d10cb80c269d0677f7165c548e49113d91b26848ae01a7732f15ff88379573411237d1a9dfb9603d2f40d7a56bf12b1bf5f6ae3b69d7bfebd45689",
-            hex::encode(parsed.pubkey.serialize_uncompressed().to_vec()));
+            hex::encode(parsed.pubkey.serialize_uncompressed()));
     }
 }

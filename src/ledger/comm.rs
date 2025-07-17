@@ -25,10 +25,8 @@ use std::{cmp::min, mem::size_of_val, slice};
 use crate::errors::HWKeyError;
 use crate::ledger::apdu::APDU;
 
-///
 pub const HID_RPT_SIZE: usize = 64;
 
-///
 pub const INIT_HEADER_SIZE: usize = 7;
 
 /// Size of data chunk expected in Init USB HID Packets
@@ -54,7 +52,9 @@ pub const SW_INCONSISTENT_PS: [u8; 2] =         [0x6A, 0x87];
 pub const SW_WRONG_PS: [u8; 2] =                [0x6b, 0x00];
 pub const SW_NO_ERROR: [u8; 2] =                [0x90, 0x00];
 
+#[allow(dead_code)]
 pub const USER_REFUSED_ON_DEVICE: [u8; 2] =     [0x55, 0x01];
+#[allow(dead_code)]
 pub const DEVICE_LOCKED: [u8; 2] =              [0x55, 0x15];
 
 const TAG_PING: u8 = 0x02;
@@ -76,7 +76,6 @@ fn to_hid_header(channel: u16, index: usize) -> [u8; 5] {
     ]
 }
 
-///
 fn check_recv_frame(frame: &[u8], channel: u16, index: usize) -> Result<(), HWKeyError> {
     // Response header:
     // 2 bytes : channel id
@@ -92,7 +91,7 @@ fn check_recv_frame(frame: &[u8], channel: u16, index: usize) -> Result<(), HWKe
         return Err(HWKeyError::CommError("Invalid frame header size".to_string()));
     }
 
-    let seq = (frame[3] as usize) << 8 | (frame[4] as usize);
+    let seq = ((frame[3] as usize) << 8) | (frame[4] as usize);
 
     if seq == 0xbf {
         return Err(HWKeyError::CommError("Device not ready".to_string()));
@@ -101,7 +100,7 @@ fn check_recv_frame(frame: &[u8], channel: u16, index: usize) -> Result<(), HWKe
     if seq != index {
         return Err(HWKeyError::CommError(format!(
             "Invalid sequence. {:?}  != {:?} (act != exp) of {:}",
-            seq, index, hex::encode(&frame)
+            seq, index, hex::encode(frame)
         )));
     }
 
@@ -123,8 +122,8 @@ fn get_init_header(apdu: &APDU) -> [u8; INIT_HEADER_SIZE] {
 fn set_data(data: &mut [u8], itr: &mut slice::Iter<u8>, max: usize) {
     let available = itr.size_hint().0;
 
-    for i in 0..min(max, available) {
-        data[i] = *itr.next().unwrap();
+    for item in data.iter_mut().take(min(max, available)) {
+        *item = *itr.next().unwrap();
     }
 }
 
@@ -165,11 +164,11 @@ pub fn send(dev: &dyn LedgerTransport, apdu: &APDU) -> Result<(), HWKeyError> {
     while !init_sent || data_itr.size_hint().0 != 0 {
         // Add 1 to HID_RPT_SIZE since we need to prefix this with a record
         // index.
-        let mut frame: [u8; (HID_RPT_SIZE + 1) as usize] = [0; (HID_RPT_SIZE + 1) as usize];
+        let mut frame: [u8; HID_RPT_SIZE + 1] = [0; HID_RPT_SIZE + 1];
 
         frame[1..6].clone_from_slice(&to_hid_header(channel, frame_index));
         if !init_sent {
-            frame[6..13].clone_from_slice(&get_init_header(&apdu));
+            frame[6..13].clone_from_slice(&get_init_header(apdu));
             init_sent = true;
             set_data(&mut frame[13..], &mut data_itr, INIT_DATA_SIZE);
         } else {
@@ -177,12 +176,10 @@ pub fn send(dev: &dyn LedgerTransport, apdu: &APDU) -> Result<(), HWKeyError> {
         }
 
         if log_enabled!(log::Level::Trace) {
-            trace!(">> USB send: {}", hex::encode(frame.to_vec()));
+            trace!(">> USB send: {}", hex::encode(frame));
         }
 
-        if let Err(err) = dev.write(&frame) {
-            return Err(err.into());
-        };
+        dev.write(&frame)?;
         frame_index += 1;
     }
     Ok(())
@@ -194,7 +191,6 @@ pub fn recv_direct(dev: &dyn LedgerTransport, timeout: i32) -> Result<Vec<u8>, H
 
     debug!("<< read response");
     let mut data: Vec<u8> = Vec::new();
-    let datalen: usize;
     let mut recvlen: usize = 0;
     let mut frame: [u8; HID_RPT_SIZE] = [0u8; HID_RPT_SIZE];
     let frame_size = dev.read_timeout(&mut frame, timeout)?;
@@ -202,7 +198,7 @@ pub fn recv_direct(dev: &dyn LedgerTransport, timeout: i32) -> Result<Vec<u8>, H
         return Err(HWKeyError::EmptyResponse)
     }
     check_recv_frame(&frame, channel, frame_index)?;
-    datalen = (frame[5] as usize) << 8 | (frame[6] as usize);
+    let datalen: usize = ((frame[5] as usize) << 8) | (frame[6] as usize);
     data.extend_from_slice(&frame[7..frame_size]);
 
     recvlen += frame_size;
@@ -248,7 +244,6 @@ pub fn recv(dev: &dyn LedgerTransport, timeout: i32) -> Result<Vec<u8>, HWKeyErr
     }
 }
 
-///
 pub fn sendrecv(dev: &dyn LedgerTransport, apdu: &APDU) -> Result<Vec<u8>, HWKeyError> {
     send(dev, apdu)?;
     recv(dev, -1)
@@ -262,7 +257,7 @@ pub fn sendrecv_timeout(dev: &dyn LedgerTransport, apdu: &APDU, timeout: i32) ->
 /// Ping Ledger device, returns `Ok(true)` if available. `Ok(false)` is unavailable (i.e., ping
 /// response is not zero). Or `Err` if failed to connect
 pub fn ping(dev: &dyn LedgerTransport) -> Result<bool, HWKeyError> {
-    let mut frame: [u8; (HID_RPT_SIZE + 1) as usize] = [0; (HID_RPT_SIZE + 1) as usize];
+    let mut frame: [u8; HID_RPT_SIZE + 1] = [0; HID_RPT_SIZE + 1];
     let channel: u16 = 0x101;
     frame[1] = (channel >> 8) as u8;
     frame[2] = (channel & 0xff) as u8;
@@ -271,9 +266,7 @@ pub fn ping(dev: &dyn LedgerTransport) -> Result<bool, HWKeyError> {
         let parts: Vec<String> = frame.iter().map(|byte| format!("{:02x}", byte)).collect();
         trace!(">> PING USB send: {}", parts.join(""));
     }
-    if let Err(err) = dev.write(&frame) {
-        return Err(err.into());
-    };
+    dev.write(&frame)?;
     let mut frame: [u8; HID_RPT_SIZE] = [0u8; HID_RPT_SIZE];
     let frame_size = dev.read_timeout(&mut frame, 500)?;
     if frame_size == 0 {

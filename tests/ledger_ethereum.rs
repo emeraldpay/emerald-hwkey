@@ -1,6 +1,9 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
-#![cfg(all(integration_test, test_ethereum))]
+#![cfg(all(
+    integration_test,
+    any(test_ethereum, test_ethereum_classic)
+))]
 
 extern crate emerald_hwkey;
 #[macro_use]
@@ -29,7 +32,7 @@ use emerald_hwkey::ledger::app::ethereum::EthereumApps;
 use emerald_hwkey::ledger::connect::direct::LedgerHidKey;
 use emerald_hwkey::ledger::connect::LedgerKeyShared;
 use crate::emerald_hwkey::ledger::app::PubkeyAddressApp;
-use bitcoin::bip32::ExtendedPubKey;
+use bitcoin::bip32::Xpub;
 use bitcoin::NetworkKind;
 use hdpath::AccountHDPath;
 
@@ -82,12 +85,13 @@ fn internal_tx_sign(exp: &TestTx) {
     assert_eq!(exp.signature, hex::encode(sign));
 }
 
+#[cfg(not(test_ethereum_classic))]
 mod mainnet {
     use std::thread;
     use std::time::Duration;
     use std::str::FromStr;
     use bitcoin::NetworkKind;
-    use bitcoin::bip32::ExtendedPubKey;
+    use bitcoin::bip32::Xpub;
     use hdpath::{AccountHDPath, StandardHDPath};
     use log::LevelFilter;
     use simple_logger::SimpleLogger;
@@ -128,7 +132,7 @@ mod mainnet {
         let hdpath = AccountHDPath::try_from("m/44'/60'/0'").expect("Invalid HDPath");
 
         let act = app.get_xpub(&hdpath, NetworkKind::Main).expect("Failed to get xpub");
-        let exp = ExtendedPubKey::from_str("xpub6CPa3HQTW3vRGMbtqMyoRFmegyaA12RH7U3bwixGVK6oz68MeiLY5sxqZZUfzJkGarAduDJhgEtXmpDKHL6Ytv3a79jg1mkAkexCbQdMNnA").unwrap();
+        let exp = Xpub::from_str("xpub6CPa3HQTW3vRGMbtqMyoRFmegyaA12RH7U3bwixGVK6oz68MeiLY5sxqZZUfzJkGarAduDJhgEtXmpDKHL6Ytv3a79jg1mkAkexCbQdMNnA").unwrap();
 
         assert_eq!(act, exp);
     }
@@ -200,14 +204,23 @@ mod mainnet {
 mod classic {
     use std::thread;
     use std::time::Duration;
-    use bitcoin::Network;
-    use bitcoin::util::bip32::ExtendedPubKey;
+    use std::str::FromStr;
+    use bitcoin::NetworkKind;
+    use bitcoin::bip32::Xpub;
     use hdpath::AccountHDPath;
     use log::LevelFilter;
     use simple_logger::SimpleLogger;
-    use emerald_hwkey::ledger::app::{EthereumApp, LedgerApp};
-    use emerald_hwkey::ledger::app::ethereum::EthereumApps;
-    use emerald_hwkey::ledger::connect::{LedgerHidKey, LedgerKey};
+    use emerald_hwkey::{
+        ledger::{
+            connect::{LedgerHidKey, LedgerKey},
+            app::{
+                ethereum::EthereumApps,
+                EthereumApp,
+                LedgerApp,
+                PubkeyAddressApp
+            }
+        }
+    };
     use super::common;
 
     #[test]
@@ -228,8 +241,8 @@ mod classic {
 
         let hdpath = AccountHDPath::try_from("m/44'/61'/1'").expect("Invalid HDPath");
 
-        let act = app.get_xpub(&hdpath, Network::Bitcoin).expect("Failed to get xpub");
-        let exp = ExtendedPubKey::from_str("xpub6C5G8hBLBcnGpELb51nXjbvtCZbrPYU8riKw2Gb7L3ML8vyr1zV9dzYKGLoS2DbJLLgLzvaqdvzbfmgppKQB9RXaF4mCXmcRkkJkriX2WDP").unwrap();
+        let act = app.get_xpub(&hdpath, NetworkKind::Main).expect("Failed to get xpub");
+        let exp = Xpub::from_str("xpub6C5G8hBLBcnGpELb51nXjbvtCZbrPYU8riKw2Gb7L3ML8vyr1zV9dzYKGLoS2DbJLLgLzvaqdvzbfmgppKQB9RXaF4mCXmcRkkJkriX2WDP").unwrap();
 
         assert_eq!(act, exp);
     }

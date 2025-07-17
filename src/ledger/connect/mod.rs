@@ -44,9 +44,9 @@ pub trait LedgerKey {
             ..APDU::default()
         };
         let device = self.open_exclusive()?;
-        let mut conn = device.lock()
+        let conn = device.lock()
             .map_err(|_| HWKeyError::Unavailable)?;
-        match sendrecv_timeout(&mut *conn, &apdu, 100) {
+        match sendrecv_timeout(&*conn, &apdu, 100) {
             Err(e) => match e {
                 HWKeyError::EmptyResponse => Ok(AppDetails::default()),
                 _ => Err(e),
@@ -74,9 +74,9 @@ pub trait LedgerKey {
             ..APDU::default()
         };
         let device = self.open_exclusive()?;
-        let mut conn = device.lock()
+        let conn = device.lock()
             .map_err(|_| HWKeyError::Unavailable)?;
-        let resp = sendrecv_timeout(&mut *conn, &apdu, 100)?;
+        let resp = sendrecv_timeout(&*conn, &apdu, 100)?;
         LedgerDetails::try_from(resp)
     }
 }

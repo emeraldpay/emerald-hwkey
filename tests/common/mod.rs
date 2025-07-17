@@ -1,7 +1,7 @@
 use std::sync::OnceLock;
 use log::LevelFilter;
 use simple_logger::SimpleLogger;
-use emerald_hwkey::ledger::connect::{LedgerKey, LedgerKeyShared, LedgerHidKey};
+use emerald_hwkey::ledger::connect::{LedgerKeyShared, LedgerHidKey};
 
 static LOGGER: OnceLock<()> = OnceLock::new();
 

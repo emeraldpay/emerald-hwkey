@@ -296,7 +296,7 @@ impl LedgerHidKey {
 
 }
 
-pub(crate) fn read_slice(pos: usize, buf: &Vec<u8>) -> Result<(Vec<u8>, usize), HWKeyError> {
+pub(crate) fn read_slice(pos: usize, buf: &[u8]) -> Result<(Vec<u8>, usize), HWKeyError> {
     if buf.len() <= pos {
         return Ok((vec![], pos));
     }
@@ -314,7 +314,7 @@ pub(crate) fn read_slice(pos: usize, buf: &Vec<u8>) -> Result<(Vec<u8>, usize), 
     Ok((codes.to_vec(), end))
 }
 
-pub(crate) fn read_string(pos: usize, buf: &Vec<u8>) -> Result<(String, usize), HWKeyError> {
+pub(crate) fn read_string(pos: usize, buf: &[u8]) -> Result<(String, usize), HWKeyError> {
     let (codes, end) = read_slice(pos, buf)?;
 
     // Some apps (BOLOS for example) has a bug that produces the zero-terminator into the output so we just cut it off here
@@ -374,7 +374,7 @@ impl LedgerKey for LedgerHidKey {
                 trace!("device {:?}", hid_info);
                 hid_info.vendor_id() == LEDGER_VID
                     && LedgerDevice::try_from(hid_info.product_id()).is_ok()
-            }).map(|hid_info| hid_info.clone());
+            }).cloned();
 
             device
         };
@@ -402,17 +402,14 @@ impl LedgerKey for LedgerHidKey {
             {
                 //
                 //serial number is always 0001
-                let mut h = self.device()?;
-                match ping(&mut h) {
-                    Ok(v) => {
-                        if v {
-                            //
-                            // HidDevice keeps a lock of the HidApi so it should be ok to give a Mutex over the HidDevice itself
-                            //
-                            return Ok(Arc::new(Mutex::new(h)));
-                        }
+                let h = self.device()?;
+                if let Ok(v) = ping(&h) {
+                    if v {
+                        //
+                        // HidDevice keeps a lock of the HidApi so it should be ok to give a Mutex over the HidDevice itself
+                        //
+                        return Ok(Arc::new(Mutex::new(h)));
                     }
-                    Err(_) => {}
                 }
             }
             thread::sleep(time::Duration::from_millis(retry_delay));
@@ -576,7 +573,7 @@ mod tests {
     pub fn parse_ledger() {
         let raw = hex::decode("3300000407312e322e342d3104a600000003322e38").unwrap();
         let act = LedgerDetails::try_from(raw);
-        if !act.is_ok() {
+        if act.is_err() {
             println!("Error: {}", act.clone().err().unwrap())
         }
         assert!(act.is_ok());

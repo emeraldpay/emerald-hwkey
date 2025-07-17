@@ -175,17 +175,17 @@ impl TryFrom<(Vec<u8>, GetAddressOpts)> for AddressResponse {
                 Address::p2sh(&script, opts.network)
                     .map_err(|_| HWKeyError::CryptoError("Invalid Pubkey".to_string()))?
             },
-            AddressType::Legacy => Address::p2pkh(&pubkey_comp, opts.network)
+            AddressType::Legacy => Address::p2pkh(pubkey_comp, opts.network)
         };
 
         if opts.verify_string {
             let address_value = &value[address_start..address_end];
             let address_str = from_utf8(address_value).map(|a| a.to_string())
-                .map_err(|e| HWKeyError::EncodingError(format!("Can't parse address: {}", e.to_string()))
+                .map_err(|e| HWKeyError::EncodingError(format!("Can't parse address: {}", e))
                 )?;
             if address.to_string() != address_str {
                 return Err(HWKeyError::EncodingError(
-                    format!("Address inconsistency {} != {}", address.to_string(), address_str)
+                    format!("Address inconsistency {} != {}", address, address_str)
                 ));
             }
         }
@@ -198,7 +198,7 @@ impl TryFrom<(Vec<u8>, GetAddressOpts)> for AddressResponse {
                 format!("Chaincode cutoff. {:?} > {:?}", chaincode_end, value.len())
             ))
         }
-        let chaincode = (&value[chaincode_start..chaincode_end]).to_vec();
+        let chaincode = value[chaincode_start..chaincode_end].to_vec();
         let chaincode = ChainCode::try_from(chaincode.as_slice()).unwrap();
 
         Ok(AddressResponse {
@@ -253,7 +253,7 @@ impl BitcoinApp {
     }
 
     fn witness_redeem(pubkey: &PublicKey) -> ScriptBuf {
-        let compressed = CompressedPublicKey::try_from(pubkey.clone())
+        let compressed = CompressedPublicKey::try_from(*pubkey)
             .map_err(|_| HWKeyError::CryptoError("Invalid public key".to_string())).unwrap();
         let key_hash = WPubkeyHash::from(&compressed);
         ScriptBuf::p2wpkh_script_code(key_hash)
@@ -286,16 +286,16 @@ impl BitcoinApp {
             });
         }
 
-        self.start_untrusted_hash_tx(&mut *device, true, &inputs, &tx, false)?;
+        self.start_untrusted_hash_tx(&mut *device, true, &inputs, tx, false)?;
 
         // finalize to get hash
-        self.finalize_outputs(&mut *device, &tx)?;
+        self.finalize_outputs(&mut *device, tx)?;
 
         // make actual signatures
         let mut signatures = Vec::with_capacity(inputs.len());
         for (i, input) in inputs.iter().enumerate() {
             let ic = input.clone();
-            self.start_untrusted_hash_tx(&mut *device, false,&vec![ic], &tx, true)?;
+            self.start_untrusted_hash_tx(&mut *device, false,&vec![ic], tx, true)?;
             let signature = self.untrusted_hash_sign(&mut *device, input, tx.lock_time.to_consensus_u32())?;
             tx.input[i].witness = Witness::p2wpkh(&signature, &input.from_address.pubkey.inner);
             signatures.push(signature);
@@ -304,10 +304,10 @@ impl BitcoinApp {
         Ok(signatures)
     }
 
-    // see https://github.com/LedgerHQ/app-bitcoin/blob/master/doc/btc.asc#untrusted-hash-transaction-input-start
-    fn start_untrusted_hash_tx(&self, device: &mut dyn LedgerTransport, is_new_tx: bool, inputs: &Vec<InputDetails>, tx: &Transaction, second_pass: bool) -> Result<(), HWKeyError> {
+    // see reference/ledger-bitcoin.adoc#untrusted-hash-transaction-input-start
+    fn start_untrusted_hash_tx(&self, device: &mut dyn LedgerTransport, is_new_tx: bool, inputs: &[InputDetails], tx: &Transaction, second_pass: bool) -> Result<(), HWKeyError> {
         let mut data: Vec<u8> = Vec::new();
-        // needs version
+        // needs the version
         data.write_u32::<LittleEndian>(tx.version.0 as u32)
             .map_err(|_| HWKeyError::EncodingError("Failed to encode version".to_string()))?;
         data.extend_from_slice(serialize(&VarInt(inputs.len() as u64)).as_slice());
@@ -316,19 +316,19 @@ impl BitcoinApp {
             data.push(0x02);
             // original 36 bytes prevout
             data.extend_from_slice(serialize(&ti.prev_tx.previous_output).as_slice());
-            // and the original 8 bytes little endian amount associated to this input
+            // and the original 8-bytes little endian amount associated with this input
             data.write_u64::<LittleEndian>(ti.amount)
                 .map_err(|_| HWKeyError::EncodingError("Failed to encode amount".to_string()))?;
 
-            // The transaction shall be processed first with all inputs having a null script length
+            // The transaction shall be processed first with all inputs having a null script length.
             // Then each input to sign shall be processed as part of a pseudo transaction with a single input and no outputs.
-            // i.e. include scripts only on second pass
+            // I.e. include scripts only on second pass
             if second_pass {
                 // must be witness redeem
                 // serialize() encodes size
                 data.extend_from_slice(serialize(&ti.redeem).as_slice());
             } else {
-                // provide only 0 size
+                // provide only 0-size
                 data.extend_from_slice(serialize(&VarInt(0u64)).as_slice());
             };
             // sequence
@@ -390,9 +390,14 @@ impl BitcoinApp {
             .with_p2(0x00)
             .with_data(data.as_slice())
             .build();
-        let signature = sendrecv(device, &apdu)?;
+        let mut signature = sendrecv(device, &apdu)?;
+        // Mask first byte with 0xFE as per Ledger specification
+        // This ensures the DER sequence tag is valid (0x30 instead of potentially 0x31)
+        if !signature.is_empty() {
+            signature[0] &= 0xFE;
+        }
         Signature::from_slice(signature.as_slice())
-            .map_err(|e| HWKeyError::CryptoError(format!("Invalid signature: {}", e)))
+            .map_err(|_| HWKeyError::CryptoError("Received invalid signature from Ledger".to_string()))
     }
 
     fn finalize_outputs(&self, device: &mut dyn LedgerTransport, tx: &Transaction) -> Result<(), HWKeyError> {
@@ -419,10 +424,8 @@ impl BitcoinApp {
                 .with_data(chunk)
                 .build();
             let result = sendrecv(device, &apdu)?;
-            if last {
-                if result.ne(&vec![0x00u8, 0x00u8]) {
-                    return Err(HWKeyError::CryptoError("Validation required".to_string()))
-                }
+            if last && result.ne(&vec![0x00u8, 0x00u8]) {
+                return Err(HWKeyError::CryptoError("Validation required".to_string()))
             }
         }
         Ok(())
@@ -431,8 +434,8 @@ impl BitcoinApp {
     fn get_version(&self) -> Option<AppVersion> {
         let apdu = ApduBuilder::new(COMMAND_COIN_VERSION)
             .build();
-        let mut device = self.ledger.lock().unwrap();
-        let resp = sendrecv(&mut *device, &apdu);
+        let device = self.ledger.lock().unwrap();
+        let resp = sendrecv(&*device, &apdu);
         if resp.is_err() {
             return None
         }
@@ -479,14 +482,14 @@ impl TryFrom<Vec<u8>> for AppVersion {
         let p2sh: [u8; 2] = [value[2], value[3]];
         let family = value[4];
         let name_len = value[5] as usize;
-        expected_len = expected_len + name_len;
+        expected_len += name_len;
         if value.len() < expected_len {
             return Err(())
         }
         let name = String::from_utf8(value[6..6+name_len].to_vec()).map_err(|_| ())?;
         let ticker_len = value[6 + name_len] as usize;
         let ticker_start = 6 + name_len + 1;
-        expected_len = expected_len + ticker_len;
+        expected_len += ticker_len;
         if value.len() < expected_len {
             return Err(())
         }

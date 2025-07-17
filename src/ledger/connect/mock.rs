@@ -27,6 +27,12 @@ pub struct MockTransport {
     pub response: Vec<u8>,
 }
 
+impl Default for MockTransport {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MockTransport {
     /// Create a new MockTransport with default success response
     pub fn new() -> Self {

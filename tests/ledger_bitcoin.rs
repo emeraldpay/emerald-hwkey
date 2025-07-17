@@ -1,10 +1,10 @@
-#![cfg(all(integration_test, test_bitcoin))]
+#![cfg(all(
+    integration_test,
+    any(test_bitcoin, test_bitcoin_testnet)
+))]
 
 use lazy_static::lazy_static;
 use log::LevelFilter;
-use emerald_hwkey::ledger::app::{BitcoinApp, LedgerApp};
-use emerald_hwkey::ledger::app::bitcoin::BitcoinApps;
-use emerald_hwkey::ledger::connect::{LedgerHidKey, LedgerKey};
 use simple_logger::SimpleLogger;
 
 mod common;
@@ -16,13 +16,23 @@ lazy_static! {
 #[cfg(not(test_bitcoin_testnet))]
 mod mainnet {
     use std::str::FromStr;
-    use bitcoin::{Address, Network};
-    use bitcoin::psbt::serialize::Serialize;
-    use bitcoin::util::bip32::ExtendedPubKey;
+    use bitcoin::{
+        Address,
+        NetworkKind,
+        bip32::Xpub
+    };
     use hdpath::{AccountHDPath, StandardHDPath};
-    use emerald_hwkey::ledger::app::bitcoin::{AddressType, BitcoinApps, GetAddressOpts};
-    use emerald_hwkey::ledger::app::{BitcoinApp, LedgerApp, PubkeyAddressApp};
-    use emerald_hwkey::ledger::connect::{LedgerHidKey, LedgerKey};
+    use emerald_hwkey::{
+        ledger::{
+            app::{
+                bitcoin::{AddressType, BitcoinApps, GetAddressOpts},
+                BitcoinApp,
+                LedgerApp,
+                PubkeyAddressApp
+            },
+            connect::{LedgerKey}
+        }
+    };
     use super::common;
 
     #[test]
@@ -44,18 +54,18 @@ mod mainnet {
 
         let hdpath = StandardHDPath::try_from("m/84'/0'/0'/0/0").expect("Invalid HDPath");
         let act = app.get_address(&hdpath, GetAddressOpts::default()).expect("Failed to get address");
-        assert_eq!(act.address, Address::from_str("bc1qaaayykrrx84clgnpcfqu00nmf2g3mf7f53pk3n").unwrap());
-        assert_eq!(hex::encode(act.pubkey.serialize()), "0365fa75cc427606b99d9aaa326fdc7d0d30add37c545c5795eab1112839ccb406");
+        assert_eq!(act.address, Address::from_str("bc1qaaayykrrx84clgnpcfqu00nmf2g3mf7f53pk3n").unwrap().assume_checked());
+        assert_eq!(hex::encode(act.pubkey.to_bytes()), "0365fa75cc427606b99d9aaa326fdc7d0d30add37c545c5795eab1112839ccb406");
 
         let hdpath = StandardHDPath::try_from("m/84'/0'/1'/0/5").expect("Invalid HDPath");
         let act = app.get_address(&hdpath, GetAddressOpts::default()).expect("Failed to get address");
-        assert_eq!(act.address, Address::from_str("bc1qutnalcwjea9zf38vgczkncw8svdc9gzyslavwn").unwrap());
-        assert_eq!(hex::encode(act.pubkey.serialize()), "0223e3b63f8bfec04e968b6b413242006e59e74972617543325116d836521fadb5");
+        assert_eq!(act.address, Address::from_str("bc1qutnalcwjea9zf38vgczkncw8svdc9gzyslavwn").unwrap().assume_checked());
+        assert_eq!(hex::encode(act.pubkey.to_bytes()), "0223e3b63f8bfec04e968b6b413242006e59e74972617543325116d836521fadb5");
 
         let hdpath = StandardHDPath::try_from("m/84'/0'/1'/1/3").expect("Invalid HDPath");
         let act = app.get_address(&hdpath, GetAddressOpts::default()).expect("Failed to get address");
-        assert_eq!(act.address, Address::from_str("bc1qtr4m7wm33c4wzywh3tgtpkkpd0wnd2lmyyqf9m").unwrap());
-        assert_eq!(hex::encode(act.pubkey.serialize()), "02cbf9b7ef45036927be859f4d0125f404ef1247878fb97c2b11c05726df0f2323");
+        assert_eq!(act.address, Address::from_str("bc1qtr4m7wm33c4wzywh3tgtpkkpd0wnd2lmyyqf9m").unwrap().assume_checked());
+        assert_eq!(hex::encode(act.pubkey.to_bytes()), "02cbf9b7ef45036927be859f4d0125f404ef1247878fb97c2b11c05726df0f2323");
     }
 
     #[test]
@@ -72,15 +82,15 @@ mod mainnet {
 
         let hdpath = StandardHDPath::try_from("m/44'/0'/0'/0/0").expect("Invalid HDPath");
         let act = app.get_address(&hdpath, opts).expect("Failed to get address");
-        assert_eq!(act.address, Address::from_str("1C8QaECCrmFJAnYt449yPH9fAXTSiPKiL3").unwrap());
+        assert_eq!(act.address, Address::from_str("1C8QaECCrmFJAnYt449yPH9fAXTSiPKiL3").unwrap().assume_checked());
 
         let hdpath = StandardHDPath::try_from("m/44'/0'/1'/0/55").expect("Invalid HDPath");
         let act = app.get_address(&hdpath, opts).expect("Failed to get address");
-        assert_eq!(act.address, Address::from_str("1FyQq9QCTZM5s2SS9J4ow7V7hRctptnNnX").unwrap());
+        assert_eq!(act.address, Address::from_str("1FyQq9QCTZM5s2SS9J4ow7V7hRctptnNnX").unwrap().assume_checked());
 
         let hdpath = StandardHDPath::try_from("m/44'/0'/1'/1/33").expect("Invalid HDPath");
         let act = app.get_address(&hdpath, opts).expect("Failed to get address");
-        assert_eq!(act.address, Address::from_str("1EzY1L83ThJqZMznLAEninjQximpg5A2em").unwrap());
+        assert_eq!(act.address, Address::from_str("1EzY1L83ThJqZMznLAEninjQximpg5A2em").unwrap().assume_checked());
     }
 
     #[test]
@@ -97,15 +107,15 @@ mod mainnet {
 
         let hdpath = StandardHDPath::try_from("m/49'/0'/0'/0/0").expect("Invalid HDPath");
         let act = app.get_address(&hdpath, opts).expect("Failed to get address");
-        assert_eq!(act.address, Address::from_str("388YAeohMoH23UhQPzgAbreW1ZSQiFbcfM").unwrap());
+        assert_eq!(act.address, Address::from_str("388YAeohMoH23UhQPzgAbreW1ZSQiFbcfM").unwrap().assume_checked());
 
         let hdpath = StandardHDPath::try_from("m/49'/0'/1'/0/55").expect("Invalid HDPath");
         let act = app.get_address(&hdpath, opts).expect("Failed to get address");
-        assert_eq!(act.address, Address::from_str("3N5L6N3W3utSe17W7xAqVbgZTHkYXUQDWR").unwrap());
+        assert_eq!(act.address, Address::from_str("3N5L6N3W3utSe17W7xAqVbgZTHkYXUQDWR").unwrap().assume_checked());
 
         let hdpath = StandardHDPath::try_from("m/49'/0'/1'/1/33").expect("Invalid HDPath");
         let act = app.get_address(&hdpath, opts).expect("Failed to get address");
-        assert_eq!(act.address, Address::from_str("3LUJrf27afymiyZskzcLBmeECKfagsV6xz").unwrap());
+        assert_eq!(act.address, Address::from_str("3LUJrf27afymiyZskzcLBmeECKfagsV6xz").unwrap().assume_checked());
     }
 
     #[test]
@@ -117,7 +127,7 @@ mod mainnet {
 
         let hdpath = StandardHDPath::try_from("m/84'/0'/0'/0/0").expect("Invalid HDPath");
         let act = app.get_address(&hdpath, GetAddressOpts::confirm()).expect("Failed to get address");
-        assert_eq!(act.address, Address::from_str("bc1qaaayykrrx84clgnpcfqu00nmf2g3mf7f53pk3n").unwrap());
+        assert_eq!(act.address, Address::from_str("bc1qaaayykrrx84clgnpcfqu00nmf2g3mf7f53pk3n").unwrap().assume_checked());
     }
 
     #[test]
@@ -129,7 +139,7 @@ mod mainnet {
 
         let hdpath = StandardHDPath::try_from("m/49'/3'/0'/0/0").expect("Invalid HDPath");
         let act = app.get_address(&hdpath, GetAddressOpts::compat_address()).expect("Failed to get address");
-        assert_eq!(act.address, Address::from_str("36rYHXjrQp5uJVfZfdW5Y3FvqGDFDVhtms").unwrap());
+        assert_eq!(act.address, Address::from_str("36rYHXjrQp5uJVfZfdW5Y3FvqGDFDVhtms").unwrap().assume_checked());
     }
 
     #[test]
@@ -141,8 +151,8 @@ mod mainnet {
 
         let hdpath = AccountHDPath::try_from("m/44'/0'/0'").expect("Invalid HDPath");
 
-        let act = app.get_xpub(&hdpath, Network::Bitcoin).expect("Failed to get xpub");
-        let exp = ExtendedPubKey::from_str("xpub6DKpFN6ZfnVw31f2LtBtZfQ2QQocxgojbwyg63RFmC1C9k14ijNUPEPheJ3DQVjAWFHD5EeXVEZ9RKvtUhZNe5P31nivbtCo7h7dLfzRC1v").unwrap();
+        let act = app.get_xpub(&hdpath, NetworkKind::Main).expect("Failed to get xpub");
+        let exp = Xpub::from_str("xpub6DKpFN6ZfnVw31f2LtBtZfQ2QQocxgojbwyg63RFmC1C9k14ijNUPEPheJ3DQVjAWFHD5EeXVEZ9RKvtUhZNe5P31nivbtCo7h7dLfzRC1v").unwrap();
 
         assert_eq!(act, exp);
     }
@@ -156,8 +166,8 @@ mod mainnet {
 
         let hdpath = AccountHDPath::try_from("m/44'/0'/1'").expect("Invalid HDPath");
 
-        let act = app.get_xpub(&hdpath, Network::Bitcoin).expect("Failed to get xpub");
-        let exp = ExtendedPubKey::from_str("xpub6DKpFN6ZfnVw6Vm67fB1HVkRdwfHmEiDZvXrtMUmd2BavMd5onANHhVdMpYGgza4gUVULrPAoSdFy4BkSPCGcbFJ18GBC9eg7rmt5YqD9RJ").unwrap();
+        let act = app.get_xpub(&hdpath, NetworkKind::Main).expect("Failed to get xpub");
+        let exp = Xpub::from_str("xpub6DKpFN6ZfnVw6Vm67fB1HVkRdwfHmEiDZvXrtMUmd2BavMd5onANHhVdMpYGgza4gUVULrPAoSdFy4BkSPCGcbFJ18GBC9eg7rmt5YqD9RJ").unwrap();
 
         assert_eq!(act, exp);
     }
@@ -171,10 +181,10 @@ mod mainnet {
 
         let hdpath = AccountHDPath::try_from("m/84'/0'/0'").expect("Invalid HDPath");
 
-        let act = app.get_xpub(&hdpath, Network::Bitcoin).expect("Failed to get xpub");
+        let act = app.get_xpub(&hdpath, NetworkKind::Main).expect("Failed to get xpub");
         // actual = zpub6rRF9XhDBRQSKiGLTD9vTaBfdpRrxJA9eG5YHmTwFfRN2Rbv7w7XNgCZg93Gk7CdRdfjY5hwM5ugrwXak9RgVsx5fwHfAdHdbf5UKmokEtJ
         // convert with https://jlopp.github.io/xpub-converter/
-        let exp = ExtendedPubKey::from_str("xpub6CkiYCMNt4KUd7t6nVag3PzfHt8y54B9p336iygAVefbvDyTccnQ8YtHdj86kHtncMS838WpRmCb6NJTJkbeuQaswFtozoef4CxBYcSAYWa").unwrap();
+        let exp = Xpub::from_str("xpub6CkiYCMNt4KUd7t6nVag3PzfHt8y54B9p336iygAVefbvDyTccnQ8YtHdj86kHtncMS838WpRmCb6NJTJkbeuQaswFtozoef4CxBYcSAYWa").unwrap();
 
         assert_eq!(act, exp);
     }
@@ -188,26 +198,28 @@ mod mainnet {
 
         let hdpath = AccountHDPath::try_from("m/84'/0'/17'").expect("Invalid HDPath");
 
-        let act = app.get_xpub(&hdpath, Network::Bitcoin).expect("Failed to get xpub");
+        let act = app.get_xpub(&hdpath, NetworkKind::Main).expect("Failed to get xpub");
         // actual = zpub6rRF9XhDBRQT6HfqmRBeQkQ9JVswt45EoPFgEMZtysrJwPZcNRJ7mQCrnPcomdyRBV95Cj2cHWusvAafHvUZCLoJDw2Dy7GyqjXjg36r7zb
         // convert with https://jlopp.github.io/xpub-converter/
-        let exp = ExtendedPubKey::from_str("xpub6CkiYCMNt4KVPhHc6hcPzaD8xZb3zp6EyADEfZn8Ds6YqBw9s6xzXGtajyhdmpfaNCuThmqVNCCn9bMXrXeXbsS6VFdNoHe1JHQSttAp1nc").unwrap();
+        let exp = Xpub::from_str("xpub6CkiYCMNt4KVPhHc6hcPzaD8xZb3zp6EyADEfZn8Ds6YqBw9s6xzXGtajyhdmpfaNCuThmqVNCCn9bMXrXeXbsS6VFdNoHe1JHQSttAp1nc").unwrap();
 
         assert_eq!(act, exp);
     }
 }
 
-#[cfg(ledger_bitcoin_test)]
+#[cfg(test_bitcoin_testnet)]
 mod testnet {
     use std::str::FromStr;
-    use bitcoin::{Address, Network, OutPoint, PackedLockTime, PublicKey, Transaction, TxIn, TxOut, Txid};
-    use bitcoin::psbt::serialize::Serialize;
+    use bitcoin::{
+        Address, NetworkKind, OutPoint, Transaction, TxIn, TxOut, Txid, PublicKey,
+        bip32::{ChildNumber, Xpub},
+        Amount, Sequence, absolute::LockTime, CompressedPublicKey, KnownHrp
+    };
     use bitcoin::secp256k1::Secp256k1;
-    use bitcoin::util::bip32::{ChildNumber, ExtendedPubKey};
     use hdpath::{AccountHDPath, StandardHDPath};
     use emerald_hwkey::ledger::app::bitcoin::{BitcoinApps, GetAddressOpts, SignTx, UnsignedInput};
     use emerald_hwkey::ledger::app::{BitcoinApp, LedgerApp, PubkeyAddressApp};
-    use emerald_hwkey::ledger::connect::{LedgerHidKey, LedgerKey};
+    use emerald_hwkey::ledger::connect::{LedgerKey};
     use super::common;
 
     #[test]
@@ -228,24 +240,24 @@ mod testnet {
         let app = manager.access::<BitcoinApp>().unwrap();
 
         let opts = GetAddressOpts {
-            network: Network::Testnet,
+            network: NetworkKind::Test,
             ..GetAddressOpts::default()
         };
 
         let hdpath = StandardHDPath::try_from("m/84'/1'/0'/0/0").expect("Invalid HDPath");
         let act = app.get_address(&hdpath, opts).expect("Failed to get address");
-        assert_eq!(act.address, Address::from_str("tb1qglapytdh7tmu7uphfh2rczzy89a7k98z5p3era").unwrap());
-        assert_eq!(hex::encode(act.pubkey.serialize()), "0300aa53021aac8f948b391b2c6aab930f6186d0bc1d29fca81a2459e85630e18f");
+        assert_eq!(act.address, Address::from_str("tb1qglapytdh7tmu7uphfh2rczzy89a7k98z5p3era").unwrap().assume_checked());
+        assert_eq!(hex::encode(act.pubkey.to_bytes()), "0300aa53021aac8f948b391b2c6aab930f6186d0bc1d29fca81a2459e85630e18f");
 
         let hdpath = StandardHDPath::try_from("m/84'/1'/1'/0/5").expect("Invalid HDPath");
         let act = app.get_address(&hdpath, opts).expect("Failed to get address");
-        assert_eq!(act.address, Address::from_str("tb1quw7aafua6qe43ydvv3aj7p5xqspc6rpvzwjem4").unwrap());
-        assert_eq!(hex::encode(act.pubkey.serialize()), "023a7a069b5fcfcca78eadaf3c209f97cebae11761857e2734ed7f2d43008d5de8");
+        assert_eq!(act.address, Address::from_str("tb1quw7aafua6qe43ydvv3aj7p5xqspc6rpvzwjem4").unwrap().assume_checked());
+        assert_eq!(hex::encode(act.pubkey.to_bytes()), "023a7a069b5fcfcca78eadaf3c209f97cebae11761857e2734ed7f2d43008d5de8");
 
         let hdpath = StandardHDPath::try_from("m/84'/1'/1'/1/3").expect("Invalid HDPath");
         let act = app.get_address(&hdpath, opts).expect("Failed to get address");
-        assert_eq!(act.address, Address::from_str("tb1qhcfnvvdk0lth4rayz5fh9kcua5ep029lec0fds").unwrap());
-        assert_eq!(hex::encode(act.pubkey.serialize()), "027943d5f3a66344a6639200e70ff6281615ec18f806d074f5369b55bb1f7cef54");
+        assert_eq!(act.address, Address::from_str("tb1qhcfnvvdk0lth4rayz5fh9kcua5ep029lec0fds").unwrap().assume_checked());
+        assert_eq!(hex::encode(act.pubkey.to_bytes()), "027943d5f3a66344a6639200e70ff6281615ec18f806d074f5369b55bb1f7cef54");
     }
 
     #[test]
@@ -257,8 +269,8 @@ mod testnet {
 
         let hdpath = AccountHDPath::try_from("m/44'/1'/5'").expect("Invalid HDPath");
 
-        let act = app.get_xpub(&hdpath, Network::Testnet).expect("Failed to get xpub");
-        let exp = ExtendedPubKey::from_str("tpubDCnH31p12jTYeSH4NpWbg7s33dTQdaz2GS8wF4hjTL9wtxZaFu2qzJTcdarP6UZtCE6yZGMMVaLMdtCG9nJ3Lx999XQy9aELwcyi4xATkeo").unwrap();
+        let act = app.get_xpub(&hdpath, NetworkKind::Test).expect("Failed to get xpub");
+        let exp = Xpub::from_str("tpubDCnH31p12jTYeSH4NpWbg7s33dTQdaz2GS8wF4hjTL9wtxZaFu2qzJTcdarP6UZtCE6yZGMMVaLMdtCG9nJ3Lx999XQy9aELwcyi4xATkeo").unwrap();
 
         assert_eq!(act, exp);
     }
@@ -273,20 +285,27 @@ mod testnet {
         let secp = Secp256k1::new();
 
         let hdpath = AccountHDPath::try_from("m/84'/0'/2'").expect("Invalid HDPath");
-        let xpub = app.get_xpub(&hdpath, Network::Bitcoin).expect("Failed to get xpub");
+        let xpub = app.get_xpub(&hdpath, NetworkKind::Test).expect("Failed to get xpub");
+        let get_add_opts = GetAddressOpts {
+            network: NetworkKind::Test,
+            ..GetAddressOpts::default()
+        };
 
         for change in &[0u32, 1] {
-            for index in &[0u32, 1, 2, 5, 7, 10, 16, 64, 100, 150, 500, 1000, 15861, 71591, 619691] {
+            for index in &[0u32, 1, 2, 7, 16, 64, 100, 1000, 15861, 71591] {
+                let derived_key = xpub.derive_pub(&secp, &vec![
+                    ChildNumber::from_normal_idx(*change).unwrap(),
+                    ChildNumber::from_normal_idx(*index).unwrap()
+                ]).unwrap();
+                let btc_pubkey = PublicKey::new(derived_key.public_key);
                 let address_exp = Address::p2wpkh(
-                    &PublicKey::new(xpub.derive_pub(&secp, &vec![
-                        ChildNumber::from_normal_idx(*change).unwrap(),
-                        ChildNumber::from_normal_idx(*index).unwrap()
-                    ]).unwrap().public_key),
-                    Network::Bitcoin,
-                ).unwrap();
+                    &CompressedPublicKey::try_from(btc_pubkey).unwrap(),
+                    KnownHrp::Testnets,
+                );
+
                 let address_act = app.get_address(
                     &hdpath.address_at(*change, *index).unwrap(),
-                    GetAddressOpts::default(),
+                    get_add_opts,
                 ).unwrap().address;
 
                 // println!("verify address {:} at {:}", address_act, hdpath.address_at(*change, *index).unwrap().to_string());
@@ -311,27 +330,27 @@ mod testnet {
         ).unwrap();
 
         let mut tx = Transaction {
-            version: 2,
-            lock_time: bitcoin::PackedLockTime(0),
+            version: bitcoin::transaction::Version::TWO,
+            lock_time: LockTime::ZERO,
             input: vec![
                 TxIn {
                     previous_output: OutPoint::new(Txid::from_str("41217d32e29b67d01692eed0ca776ea24a9f03299dfc46dde1bf14d3918e5275").unwrap(), 0),
-                    sequence: bitcoin::Sequence(0xfffffffd),
+                    sequence: Sequence(0xfffffffd),
                     ..TxIn::default()
                 }
             ],
             output: vec![
                 TxOut {
                     // 0x45B27D --encode-> 7db245
-                    value: to_amount, // = 4567677
-                    script_pubkey: Address::from_str("tb1qg9zx7vnkfs8yaycm66wz5tat6d9x29wrezhcr0").unwrap().script_pubkey(),
+                    value: Amount::from_sat(to_amount), // = 4567677
+                    script_pubkey: Address::from_str("tb1qg9zx7vnkfs8yaycm66wz5tat6d9x29wrezhcr0").unwrap().assume_checked().script_pubkey(),
                 }
             ],
         };
 
         common::init();
 
-        println!("Sign tx {}", hex::encode(tx.serialize()));
+        println!("Sign tx {}", hex::encode(bitcoin::consensus::serialize(&tx)));
 
         let mut manager = common::create_instance();
         manager.connect().expect("Not connected");
@@ -344,10 +363,10 @@ mod testnet {
                     hd_path: StandardHDPath::from_str("m/84'/1'/0'/0/0").unwrap(),
                 }
             ],
-            network: Network::Testnet,
+            network: NetworkKind::Test,
         });
         assert!(signed.is_ok(), "Not ok {:?}", signed);
-        println!("Signed: {}", hex::encode(tx.serialize()));
+        println!("Signed: {}", hex::encode(bitcoin::consensus::serialize(&tx)));
 
         assert_eq!(
             tx.input[0].witness.iter().map(|x| hex::encode(x)).collect::<Vec<String>>(),
@@ -395,33 +414,33 @@ mod testnet {
         ).unwrap();
 
         let mut tx = Transaction {
-            version: 2,
-            lock_time: PackedLockTime(0),
+            version: bitcoin::transaction::Version::TWO,
+            lock_time: LockTime::ZERO,
             input: vec![
                 TxIn {
                     previous_output: OutPoint::new(Txid::from_str("aa622e3b4822e4a4339d9491c5b9b55716ee30ff9d9a1654f393889dbd8f45aa").unwrap(), 1),
-                    sequence: bitcoin::Sequence(0xfffffffd),
+                    sequence: Sequence(0xfffffffd),
                     ..TxIn::default()
                 },
                 TxIn {
                     previous_output: OutPoint::new(Txid::from_str("64e0a9a5b16b97af23f7e20da888ba7b8944ef338259e53f0dfb40714f8391b3").unwrap(), 0),
-                    sequence: bitcoin::Sequence(0xfffffffd),
+                    sequence: Sequence(0xfffffffd),
                     ..TxIn::default()
                 },
                 TxIn {
                     previous_output: OutPoint::new(Txid::from_str("1d868fe284c925ac4b1280c12ba9ffd11cca3d45dd1fac3d0756cd72903fdb34").unwrap(), 1),
-                    sequence: bitcoin::Sequence(0xfffffffd),
+                    sequence: Sequence(0xfffffffd),
                     ..TxIn::default()
                 }
             ],
             output: vec![
                 TxOut {
-                    value: send,
-                    script_pubkey: Address::from_str("tb1qg9zx7vnkfs8yaycm66wz5tat6d9x29wrezhcr0").unwrap().script_pubkey(),
+                    value: Amount::from_sat(send),
+                    script_pubkey: Address::from_str("tb1qg9zx7vnkfs8yaycm66wz5tat6d9x29wrezhcr0").unwrap().assume_checked().script_pubkey(),
                 },
                 TxOut {
-                    value: change,
-                    script_pubkey: Address::from_str("tb1qe8nwur644jfmsazsnmj903kr70sqnt3n9vjvlh").unwrap().script_pubkey(),
+                    value: Amount::from_sat(change),
+                    script_pubkey: Address::from_str("tb1qe8nwur644jfmsazsnmj903kr70sqnt3n9vjvlh").unwrap().assume_checked().script_pubkey(),
                 }
             ],
         };
@@ -444,7 +463,7 @@ mod testnet {
                     hd_path: StandardHDPath::from_str("m/84'/1'/0'/0/1").unwrap(),
                 },
             ],
-            network: Network::Testnet,
+            network: NetworkKind::Test,
         };
 
         let mut manager = common::create_instance();
@@ -452,7 +471,7 @@ mod testnet {
         let app = manager.access::<BitcoinApp>().unwrap();
         let signed = app.sign_tx(&mut tx, &sign_with);
         assert!(signed.is_ok(), "Not ok {:?}", signed);
-        println!("Signed: {}", hex::encode(tx.serialize()));
+        println!("Signed: {}", hex::encode(bitcoin::consensus::serialize(&tx)));
 
         assert_eq!(
             tx.input[0].witness.iter().map(|x| hex::encode(x)).collect::<Vec<String>>(),

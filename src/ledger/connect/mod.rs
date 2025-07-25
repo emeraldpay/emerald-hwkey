@@ -31,7 +31,11 @@ pub trait LedgerKey {
 
     fn create() -> Result<Self, HWKeyError> where Self: Sized;
 
-    /// Update device list
+    /// Establishes connection to the Ledger device.
+    /// 
+    /// This method MUST be called before using any other Ledger operations.
+    /// All subsequent operations (read, write, get_app_details, etc.) will fail
+    /// with `HWKeyError::Unavailable` if the device is not connected.
     fn connect(&mut self) -> Result<(), HWKeyError>;
 
     ///

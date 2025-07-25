@@ -18,6 +18,8 @@ limitations under the License.
 
 use crate::ledger::comm::LedgerTransport;
 use crate::errors::HWKeyError;
+use crate::ledger::connect::{LedgerKey, direct::AppDetails};
+use std::sync::{Arc, Mutex};
 
 /// Mock transport for testing Ledger communication
 pub struct MockTransport {
@@ -78,5 +80,57 @@ impl LedgerTransport for MockTransport {
 
     fn read_timeout(&self, buf: &mut [u8], _timeout_ms: i32) -> Result<usize, HWKeyError> {
         self.read(buf)
+    }
+}
+
+/// Mock LedgerKey implementation for testing
+pub struct MockLedgerKey {
+    pub connected: std::cell::RefCell<bool>,
+    pub error: Option<HWKeyError>,
+}
+
+impl MockLedgerKey {
+    pub fn new() -> Self {
+        Self {
+            connected: std::cell::RefCell::new(false),
+            error: None,
+        }
+    }
+
+    pub fn new_disconnected() -> Self {
+        Self {
+            connected: std::cell::RefCell::new(false),
+            error: Some(HWKeyError::Unavailable),
+        }
+    }
+}
+
+impl LedgerKey for MockLedgerKey {
+    type Transport = MockTransport;
+
+    fn create() -> Result<Self, HWKeyError> {
+        Ok(Self::new())
+    }
+
+    fn connect(&mut self) -> Result<(), HWKeyError> {
+        if let Some(err) = &self.error {
+            return Err(err.clone());
+        }
+        *self.connected.borrow_mut() = true;
+        Ok(())
+    }
+
+    fn get_app_details(&self) -> Result<AppDetails, HWKeyError> {
+        if !*self.connected.borrow() {
+            return Err(HWKeyError::Unavailable);
+        }
+        Ok(AppDetails::default())
+    }
+
+    fn open_exclusive(&self) -> Result<Arc<Mutex<Self::Transport>>, HWKeyError> {
+        if !*self.connected.borrow() {
+            return Err(HWKeyError::Unavailable);
+        }
+        Ok(Arc::new(Mutex::new(MockTransport::new())))
     }
 }

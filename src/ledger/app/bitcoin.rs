@@ -1,5 +1,4 @@
 use std::convert::TryFrom;
-use std::str::{from_utf8};
 use std::sync::{Arc, Mutex};
 use bitcoin::{
     Transaction,
@@ -86,7 +85,6 @@ impl AsExtendedKey for AddressResponse {}
 pub struct GetAddressOpts {
     pub address_type: AddressType,
     pub confirmation: bool,
-    pub verify_string: bool,
     pub network: NetworkKind,
 }
 
@@ -95,7 +93,6 @@ impl Default for GetAddressOpts {
         GetAddressOpts {
             address_type: AddressType::Bench32,
             confirmation: false,
-            verify_string: true,
             network: NetworkKind::Main
         }
     }
@@ -177,18 +174,6 @@ impl TryFrom<(Vec<u8>, GetAddressOpts)> for AddressResponse {
             },
             AddressType::Legacy => Address::p2pkh(pubkey_comp, opts.network)
         };
-
-        if opts.verify_string {
-            let address_value = &value[address_start..address_end];
-            let address_str = from_utf8(address_value).map(|a| a.to_string())
-                .map_err(|e| HWKeyError::EncodingError(format!("Can't parse address: {}", e))
-                )?;
-            if address.to_string() != address_str {
-                return Err(HWKeyError::EncodingError(
-                    format!("Address inconsistency {} != {}", address, address_str)
-                ));
-            }
-        }
 
         let chaincode_len = 32usize;
         let chaincode_start = address_end;
@@ -446,8 +431,6 @@ impl BitcoinApp {
 impl PubkeyAddressApp for BitcoinApp {
     fn get_extkey_at(&self, hd_path: &dyn HDPath) -> Result<Box<dyn AsExtendedKey>, HWKeyError> {
         let address = self.get_address(hd_path, GetAddressOpts {
-            // disable verification since it needs only pubkey, and the app may be running different blockchain with different address format
-            verify_string: false,
             confirmation: false,
             ..GetAddressOpts::default()
         })?;

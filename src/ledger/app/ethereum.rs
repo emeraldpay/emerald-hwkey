@@ -52,6 +52,14 @@ impl SignatureBytes {
     pub fn to_vec(&self) -> Vec<u8> {
         self.0.to_vec()
     }
+
+    /// Convert to the original V-R-S format as it was received from Ledger
+    pub fn to_ledger_bytes(&self) -> [u8; ECDSA_SIGNATURE_BYTES] {
+        let mut vrs = [0; ECDSA_SIGNATURE_BYTES];
+        vrs[1..65].copy_from_slice(&self.0[0..64]);
+        vrs[0] = self.0[64];
+        vrs
+    }
 }
 
 impl std::fmt::Debug for SignatureBytes {
@@ -430,7 +438,7 @@ impl LedgerApp for EthereumApp {
 
 #[cfg(test)]
 mod tests {
-    use crate::ledger::app::ethereum::{AddressResponse, EthereumApp};
+    use crate::ledger::app::ethereum::{AddressResponse, EthereumApp, SignatureBytes, ECDSA_SIGNATURE_BYTES};
     use crate::ledger::app::LedgerApp;
     use crate::ledger::connect::direct::CHUNK_SIZE;
     use crate::ledger::connect::mock::MockTransport;
@@ -584,5 +592,20 @@ mod tests {
         assert_eq!(
             "04452ae4b222d10cb80c269d0677f7165c548e49113d91b26848ae01a7732f15ff88379573411237d1a9dfb9603d2f40d7a56bf12b1bf5f6ae3b69d7bfebd45689",
             hex::encode(parsed.pubkey.serialize_uncompressed()));
+    }
+
+    #[test]
+    fn test_from_ledger_bytes_to_vrs_roundtrip() {
+        let original_data: [u8; ECDSA_SIGNATURE_BYTES] = [
+            0x1f, // V
+            0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11,
+            0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x21,
+            0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0x30, 0x31,
+            0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f, 0x40, 0x41,
+        ];
+
+        let signature = SignatureBytes::from_ledger_bytes(&original_data).expect("Failed to create SignatureBytes");
+
+        assert_eq!(original_data, signature.to_ledger_bytes());
     }
 }

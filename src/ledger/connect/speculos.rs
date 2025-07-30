@@ -16,8 +16,14 @@ pub struct LedgerSpeculosKey {
 
 impl LedgerSpeculosKey {
 
-    pub fn new() -> Result<Self, HWKeyError> {
+    pub fn from_env() -> Result<Self, HWKeyError> {
         Self::create()
+    }
+
+    pub fn new(host: &str, port: u16) -> Result<Self, HWKeyError> {
+        Ok(Self {
+            speculos: Arc::new(Mutex::new(Speculos::new(host, port))),
+        })
     }
 
     pub fn have_device(&self) -> bool {
@@ -41,7 +47,7 @@ impl LedgerKey for LedgerSpeculosKey {
 
     fn create() -> Result<Self, HWKeyError> {
         Ok(Self {
-            speculos: Arc::new(Mutex::new(Speculos::create_env())),
+            speculos: Arc::new(Mutex::new(Speculos::from_env())),
         })
     }
 

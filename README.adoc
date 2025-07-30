@@ -14,11 +14,11 @@ Rust library to access Hardware Keys for Cryptocurrency.
 
 == Development
 
-=== Integration Testing with Speculos app
+=== Integration Testing with Speculos emulator
 
-Get App Ledger App emulator from: https://github.com/LedgerHQ/speculos
+NOTE: The tests use `testcontainers-rs` to automatically manage Speculos Docker containers.
 
-.For Docker:
+.For manual Docker (i.e., for a feature development):
 ----
 docker pull ghcr.io/ledgerhq/speculos
 docker image tag ghcr.io/ledgerhq/speculos speculos
@@ -31,28 +31,9 @@ uncover one     trip    resource    lawn    turtle  enact   monster
 seven   myth    punch   hobby       comfort wild    raise   skin
 ----
 
-=== Test against a Bitcoin App
-
-.Run it in docker as:
-----
-docker run --rm -it -p 8080:5000  speculos --display headless apps/btc.elf
-----
-
 .Run tests:
 ----
-EMRLD_HWKEY_TEST=bitcoin cargo test --test speculos_bitcoin --features "speculos" -- --test-threads=1
-----
-
-=== Test against an Ethereum App
-
-.Run Speculos Docker with NanoX app:
-----
-docker run --rm -it -v $(pwd)/testdata/ledger-elf:/speculos/apps -p 8080:5000  speculos --model nanox --display headless apps/ethereum-nanox-2.0.2-1.9.18.elf
-----
-
-.Run tests:
-----
-EMRLD_HWKEY_TEST=ethereum cargo test --test speculos_ethereum --features "speculos" -- --test-threads=1
+EMRLD_HWKEY_TEST=true cargo test --test "speculos_*" --features "speculos"
 ----
 
 === Integration Testing with Real Hardware

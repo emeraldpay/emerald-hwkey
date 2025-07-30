@@ -1,7 +1,22 @@
+// Copyright 2025 EmeraldPay, Ltd
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 #![allow(unused_imports)]
 #![allow(dead_code)]
-#![cfg(all(integration_test, test_ethereum, feature = "speculos"))]
+#![cfg(all(integration_test, feature = "speculos"))]
 
+mod common;
 
 use std::convert::TryFrom;
 use std::sync::{Arc, mpsc, Mutex};
@@ -10,19 +25,19 @@ use std::thread::spawn;
 use std::time::Duration;
 use rand::prelude::*;
 use rand::seq::SliceRandom;
-use rand::thread_rng;
+use rand::rng;
 use hdpath::StandardHDPath;
 use log::LevelFilter;
 use simple_logger::SimpleLogger;
-use emerald_hwkey::ledger::app::ethereum::EthereumApp;
-use emerald_hwkey::ledger::connect::LedgerKey;
+use emerald_hwkey::ledger::app::ethereum::{EthereumApp, SignatureBytes};
 use emerald_hwkey::ledger::connect::speculos_api::{Button, Speculos};
-use emerald_hwkey::ledger::connect::LedgerSpeculosKey;
+use emerald_hwkey::ledger::connect::{LedgerSpeculosKey, LedgerKey};
+use testcontainers::runners::AsyncRunner;
+use common::speculos_container::{SpeculosConfig, start_speculos_client};
 
-#[test]
-pub fn get_address() {
-    let mut manager = LedgerSpeculosKey::new().unwrap();
-    manager.connect().expect("Not connected");
+#[tokio::test]
+pub async fn get_address() {
+    let (_speculos, manager, _container) = start_speculos_client(SpeculosConfig::ethereum()).await.unwrap();
     let app = manager.access::<EthereumApp>().unwrap();
 
     let hdpath = StandardHDPath::try_from("m/44'/60'/0'/0/0").expect("Invalid HDPath");
@@ -62,8 +77,10 @@ pub fn get_address() {
     assert_eq!(hex::encode(act.pubkey.serialize()), "039120c9b52001f02f49888e7d6fbee1851a1b9e4378951a4b998253d958b289e9");
 }
 
-#[test]
-pub fn get_address_parallel() {
+#[tokio::test]
+pub async fn get_address_parallel() {
+    let (_speculos, manager, _container) = start_speculos_client(SpeculosConfig::ethereum()).await.unwrap();
+
     let addresses: Vec<(StandardHDPath, String)> = vec![
         ("m/44'/60'/0'/0/0", "0xDad77910DbDFdE764fC21FCD4E74D71bBACA6D8D"),
         ("m/44'/60'/0'/0/1", "0xd692Cb1346262F584D17B4B470954501f6715a82"),
@@ -81,13 +98,10 @@ pub fn get_address_parallel() {
         .collect();
 
     let mut threads = vec![];
-
-    let mut manager = LedgerSpeculosKey::new().unwrap();
-    manager.connect().expect("Not connected");
     manager.access::<EthereumApp>().unwrap();
 
     let manager = Arc::new(manager);
-    let mut rnd = rand::thread_rng();
+    let mut rnd = rand::rng();
 
     for _ in 0..10 {
         let mut addresses = addresses.clone();
@@ -95,12 +109,12 @@ pub fn get_address_parallel() {
         let manager = manager.clone();
         threads.push(
             thread::spawn( move || {
-                let mut rnd = rand::thread_rng();
+                let mut rnd = rand::rng();
                 for p in addresses {
                     let hdpath = p.0;
                     let address = p.1;
 
-                    let jitter = rnd.gen_range(1..5);
+                    let jitter = rnd.random_range(1..5);
                     thread::sleep(Duration::from_millis(jitter));
                     let current = manager.access::<EthereumApp>().unwrap();
                     let act = current.get_address(&hdpath, false).unwrap();
@@ -117,21 +131,18 @@ pub fn get_address_parallel() {
     }
 }
 
-#[test]
-pub fn sign_tx() {
-    // send 1 ETH to 0x78296F1058dD49C5D6500855F59094F0a2876397 paying 20gwei for gas and nonce 3
-
+// send 1 ETH to 0x78296F1058dD49C5D6500855F59094F0a2876397 paying 20gwei for gas and nonce 3
+#[tokio::test]
+pub async fn sign_tx_legacy() {
+    let (speculos, manager, _container) = start_speculos_client(SpeculosConfig::ethereum()).await.unwrap();
     let (channel_tx, channel_rx) = mpsc::channel();
-    let mut manager = LedgerSpeculosKey::new().unwrap();
-    manager.connect().expect("Not connected");
-    let speculos = Speculos::create_env();
 
     spawn(move || {
         let app = manager.access::<EthereumApp>().unwrap();
         let hdpath = StandardHDPath::try_from("m/44'/60'/0'/0/1").expect("Invalid HDPath");
         let tx: Vec<u8> = hex::decode("ec038504a817c8008252089478296f1058dd49c5d6500855f59094f0a2876397880de0b6b3a764000080018080").unwrap();
         let signed = app.sign_transaction(tx.as_slice(), &hdpath);
-        channel_tx.send(signed);
+        let _ = channel_tx.send(signed);
     });
 
     speculos.accept_on_screen().unwrap();
@@ -139,26 +150,23 @@ pub fn sign_tx() {
     let signed = channel_rx.recv().unwrap();
 
     assert!(signed.is_ok());
-    let signature = signed.unwrap();
+    let signature: SignatureBytes = signed.unwrap();
 
-    assert_eq!("2613ad946bd71c273f54efd87f5852c4ae275a80b644f921879fc4b7ee4d3e574829c34a51194ff20102aa4e93e698d01bf49ca4672005e73fb012792bc9dd5a27", hex::encode(signature));
+    assert_eq!("13ad946bd71c273f54efd87f5852c4ae275a80b644f921879fc4b7ee4d3e574829c34a51194ff20102aa4e93e698d01bf49ca4672005e73fb012792bc9dd5a2726", hex::encode(signature));
 }
 
-#[test]
-pub fn sign_tx_eip1559() {
+#[tokio::test]
+pub async fn sign_tx_eip1559() {
     // send 1 ETH to 0x78296F1058dD49C5D6500855F59094F0a2876397 paying 20gwei max + 1gwei priority for gas and nonce 3
-
+    let (speculos, manager, _container) = start_speculos_client(SpeculosConfig::ethereum()).await.unwrap();
     let (channel_tx, channel_rx) = mpsc::channel();
-    let mut manager = LedgerSpeculosKey::new().unwrap();
-    manager.connect().expect("Not connected");
-    let speculos = Speculos::create_env();
 
     spawn(move || {
         let app = manager.access::<EthereumApp>().unwrap();
         let hdpath = StandardHDPath::try_from("m/44'/60'/0'/0/1").expect("Invalid HDPath");
         let tx: Vec<u8> = hex::decode("02f00103843b9aca008504a817c8008252089478296f1058dd49c5d6500855f59094f0a2876397880de0b6b3a764000080c0").unwrap();
         let signed = app.sign_transaction(tx.as_slice(), &hdpath);
-        channel_tx.send(signed);
+        let _ = channel_tx.send(signed);
     });
 
     speculos.accept_on_screen().unwrap();
@@ -166,7 +174,7 @@ pub fn sign_tx_eip1559() {
     let signed = channel_rx.recv().unwrap();
 
     assert!(signed.is_ok());
-    let signature = signed.unwrap();
+    let signature: SignatureBytes = signed.unwrap();
 
-    assert_eq!("008c0a3d0f9410ab3a77cc4d2e824a9b689e39de4d7deb6d5006046dc2ba42f0907a15d04bad09f1b29689fd3e09cbe384e615296314581f16b6c6148c4c48c05b", hex::encode(signature));
+    assert_eq!("8c0a3d0f9410ab3a77cc4d2e824a9b689e39de4d7deb6d5006046dc2ba42f0907a15d04bad09f1b29689fd3e09cbe384e615296314581f16b6c6148c4c48c05b00", hex::encode(signature));
 }

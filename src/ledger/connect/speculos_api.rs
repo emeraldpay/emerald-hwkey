@@ -47,6 +47,7 @@ struct ButtonRequest {
 struct ButtonResponse {}
 
 #[derive(Deserialize, Clone, Debug)]
+#[allow(dead_code)]
 struct EventResponse {
     text: String,
     x: usize,
@@ -78,15 +79,28 @@ impl Speculos {
     ///
     /// Create from environment variables, where `SPECULOS_URL` can specify URL to an instance of Speculos.
     /// By default it connects to `http://localhost:8080`
-    pub fn create_env() -> Speculos {
+    pub fn from_env() -> Speculos {
         let default = Speculos::default();
         let url = match env::var("SPECULOS_URL") {
             Ok(v) => v,
-            Err(_) => default.url
+            Err(_) => {
+                warn!("Using default Speculos URL: {}", default.url);
+                default.url
+            }
         };
         Speculos {
             url,
             ..default
+        }
+    }
+
+    ///
+    /// Create with specified host and port
+    pub fn new(host: &str, port: u16) -> Speculos {
+        let url = format!("http://{}:{}", host, port);
+        Speculos {
+            url,
+            ..Speculos::default()
         }
     }
 

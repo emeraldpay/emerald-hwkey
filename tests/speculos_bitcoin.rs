@@ -53,17 +53,80 @@ use testcontainers::runners::AsyncRunner;
 use testcontainers::core::ContainerPort;
 use common::speculos_container::{SpeculosConfig, start_speculos_client};
 
+fn config_nanos_16() -> SpeculosConfig {
+    SpeculosConfig::bitcoin()
+        .with_nano_s()
+        .with_sdk_v1()
+        .with_app("apps/nanos#btc#1.6#6bd0a5f8.elf")
+}
+
+fn config_nanos_21() -> SpeculosConfig {
+    SpeculosConfig::bitcoin()
+        .with_nano_s()
+        .with_sdk_v2()
+        .with_app("apps/nanos#btc#2.1#1c8db8da.elf")
+}
+
+fn config_nanox_20() -> SpeculosConfig {
+    SpeculosConfig::bitcoin()
+        .with_nano_x()
+        .with_sdk("2.0.2")
+        .with_app("apps/nanox#btc#2.0.2#1c8db8da.elf")
+}
+
+
 #[tokio::test]
-pub async fn is_app_open() {
-    let (_speculos, manager, _container) = start_speculos_client(SpeculosConfig::bitcoin()).await.unwrap();
+pub async fn is_app_open_nano_s_sdk_v1() {
+    is_app_open(
+        config_nanos_16()
+    ).await
+}
+
+#[tokio::test]
+pub async fn is_app_open_nano_s_sdk_v2() {
+    is_app_open(
+        config_nanos_21()
+    ).await
+}
+
+#[tokio::test]
+pub async fn is_app_open_nano_x_sdk_v2() {
+    is_app_open(
+        config_nanox_20()
+    ).await
+}
+
+async fn is_app_open(config: SpeculosConfig) {
+    common::init();
+    let (_speculos, manager, _container) = start_speculos_client(config).await.unwrap();
     let app = manager.access::<BitcoinApp>().unwrap();
     let open = app.is_open();
     assert_eq!(Some(BitcoinApps::Mainnet), open);
 }
 
 #[tokio::test]
-pub async fn get_address() {
-    let (_speculos, manager, _container) = start_speculos_client(SpeculosConfig::bitcoin()).await.unwrap();
+pub async fn get_address_nano_s_sdk_v1() {
+    get_address(
+        config_nanos_16()
+    ).await
+}
+
+#[tokio::test]
+pub async fn get_address_nano_s_sdk_v2() {
+    get_address(
+        config_nanos_21()
+    ).await
+}
+
+#[tokio::test]
+pub async fn get_address_nano_x_sdk_v2() {
+    get_address(
+        config_nanox_20()
+    ).await
+}
+
+async fn get_address(config: SpeculosConfig) {
+    let (_speculos, manager, _container) = start_speculos_client(config).await.unwrap();
     let app = manager.access::<BitcoinApp>().unwrap();
 
     let hdpath = StandardHDPath::try_from("m/84'/0'/0'/0/0").expect("Invalid HDPath");
@@ -83,8 +146,28 @@ pub async fn get_address() {
 }
 
 #[tokio::test]
-pub async fn get_address_confirmed() {
-    let (speculos, manager, _container) = start_speculos_client(SpeculosConfig::bitcoin()).await.unwrap();
+pub async fn get_address_confirmed_nano_s_sdk_v1() {
+    get_address_confirmed(
+        config_nanos_16(), 3
+    ).await
+}
+
+#[tokio::test]
+pub async fn get_address_confirmed_nano_s_sdk_v2() {
+    get_address_confirmed(
+        config_nanos_21(), 3
+    ).await
+}
+
+#[tokio::test]
+pub async fn get_address_confirmed_nano_x_sdk_v2() {
+    get_address_confirmed(
+        config_nanox_20(), 1
+    ).await
+}
+
+async fn get_address_confirmed(config: SpeculosConfig, pages: usize) {
+    let (speculos, manager, _container) = start_speculos_client(config).await.unwrap();
     let (tx, rx) = mpsc::channel();
     spawn(move || {
         let hdpath = StandardHDPath::try_from("m/84'/0'/0'/0/0").expect("Invalid HDPath");
@@ -92,13 +175,14 @@ pub async fn get_address_confirmed() {
         let act = app.get_address(&hdpath, GetAddressOpts::confirm()).expect("Failed to get address");
         tx.send(act).unwrap();
     });
+    // give time for the thread above to start
     tokio::time::sleep(Duration::from_millis(100)).await;
-    // address takes 4 pages to show
-    speculos.press(Button::Right).unwrap();
-    speculos.press(Button::Right).unwrap();
-    speculos.press(Button::Right).unwrap();
-    speculos.press(Button::Right).unwrap();
-    // on the last page we have a confirmation button
+
+    for _ in 0..pages {
+        // press right to show the next page
+        speculos.press(Button::Right).unwrap();
+    }
+    // on the next page we have a confirmation button
     speculos.press(Button::Both).unwrap();
     let act = rx.recv().unwrap();
 
@@ -149,7 +233,9 @@ pub async fn sign_tx_testnet_1() {
         });
         channel_tx.send(signed.map(|_| tx)).unwrap();
     });
+    // give time for the thread above to start
     tokio::time::sleep(Duration::from_millis(500)).await;
+
     // first confirm outputs
     speculos.press(Button::Right).unwrap();
     speculos.press(Button::Right).unwrap();

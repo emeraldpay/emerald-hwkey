@@ -4,6 +4,7 @@ use crate::errors::HWKeyError;
 use crate::ledger::comm::LedgerTransport;
 use std::env;
 use std::sync::{Arc, Mutex};
+use std::io::Read;
 
 #[derive(Serialize, Clone, Debug)]
 struct ApduRequest {
@@ -109,10 +110,22 @@ impl Speculos {
             format!("{}/{}", &self.url, path).as_str()
         ).send_json(command);
         match resp {
-            Ok(v) => if v.status() != 200 {
-                Err(HWKeyError::CommError(format!("HTTP Status: {}", v.status())))
-            } else {
-                v.into_json::<R>().map_err(|e| HWKeyError::CommError(format!("Failed to read JSON: {}", e)))
+            Ok(mut v) => {
+                if !v.status().is_success() {
+                    Err(HWKeyError::CommError(format!("HTTP Status: {}", v.status())))
+                } else {
+                    let mut json = vec![];
+                    let _len = v.body_mut()
+                        .as_reader()
+                        .read_to_end(&mut json)
+                        .map_err(|e| {
+                            HWKeyError::CommError(format!("Failed to read response: {}", e))
+                        })?;
+                    serde_json::from_slice(json.as_slice()).map_err(|e| {
+                        warn!("Failed to parse JSON: {}", e);
+                        HWKeyError::CommError(format!("Failed to read JSON: {}", e))
+                    })
+                }
             },
             Err(e) => Err(HWKeyError::CommError(format!("Failed to make a request: {}", e)))
         }
@@ -150,7 +163,7 @@ impl Speculos {
             format!("{}/events", &self.url).as_str()
             )
             .call().map_err(|e| HWKeyError::CommError(format!("Failed to make a request: {}", e)))?
-            .into_string().map_err(|_| HWKeyError::CommError("Not a string".to_string()))?;
+            .body_mut().read_to_string().map_err(|_| HWKeyError::CommError("Not a string".to_string()))?;
         let events: Vec<String> = serde_json::from_str::<EventsListResponse>(resp.as_str()).unwrap()
             .events.iter()
             .map(|event| event.text.clone())

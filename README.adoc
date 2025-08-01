@@ -26,7 +26,7 @@ docker image tag ghcr.io/ledgerhq/speculos speculos
 
 The Speculos app is initialized with the following seed by default:
 ----
-glory   promote mansion idle        axis    finger   extra   february
+glory   promote mansion idle        axis    finger  extra   february
 uncover one     trip    resource    lawn    turtle  enact   monster
 seven   myth    punch   hobby       comfort wild    raise   skin
 ----

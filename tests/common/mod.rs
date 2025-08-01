@@ -11,7 +11,9 @@ static LOGGER: OnceLock<()> = OnceLock::new();
 pub fn init() {
     LOGGER.get_or_init(|| {
         SimpleLogger::new()
-            .with_level(LevelFilter::Trace).init().unwrap();
+            .with_level(LevelFilter::Info)
+            .with_module_level("emerald_hwkey", LevelFilter::Trace)
+            .init().unwrap();
     });
     log::debug!("-------------------------------------------------------")
 }

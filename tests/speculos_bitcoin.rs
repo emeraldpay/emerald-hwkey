@@ -191,6 +191,99 @@ async fn get_address_confirmed(config: SpeculosConfig, pages: usize) {
 }
 
 #[tokio::test]
+pub async fn sign_tx_nano_s_sdk_v1() {
+    sign_tx(
+        config_nanos_16(), 6, false
+    ).await
+}
+
+#[tokio::test]
+pub async fn sign_tx_nano_s_sdk_v2() {
+    sign_tx(
+        config_nanos_21(), 5, true
+    ).await
+}
+
+#[tokio::test]
+pub async fn sign_tx_nano_x_sdk_v2() {
+    sign_tx(
+        config_nanox_20(), 3, true
+    ).await
+}
+
+pub async fn sign_tx(config: SpeculosConfig, pages: usize, tx_confirm: bool) {
+    common::init();
+    let (speculos, manager, _container) = start_speculos_client(config).await.unwrap();
+
+    let (channel_tx, channel_rx) = mpsc::channel();
+    spawn(move || {
+        println!("Preparing to sign transaction");
+        let from_amount = 4567800;
+        let to_amount = from_amount - 123;
+
+        let mut tx = Transaction {
+            version: bitcoin::transaction::Version::TWO,
+            lock_time: LockTime::ZERO,
+            input: vec![
+                TxIn {
+                    previous_output: OutPoint::new(Txid::from_str("41217d32e29b67d01692eed0ca776ea24a9f03299dfc46dde1bf14d3918e5275").unwrap(), 0),
+                    sequence: Sequence(0xfffffffd),
+                    ..TxIn::default()
+                }
+            ],
+            output: vec![
+                TxOut {
+                    value: Amount::from_sat(to_amount), // = 4567677
+                    script_pubkey: Address::from_str("bc1q7q9970rq7sx94nl9jcewrcj9k9jp59a8yaslhl").unwrap().assume_checked().script_pubkey(),
+                }
+            ],
+        };
+
+        println!("Sign tx {}", hex::encode(bitcoin::consensus::serialize(&tx)));
+        let app = manager.access::<BitcoinApp>().unwrap();
+        let signed = app.sign_tx(&mut tx, &SignTx {
+            inputs: vec![
+                UnsignedInput {
+                    index: 0,
+                    amount: from_amount,
+                    hd_path: StandardHDPath::from_str("m/84'/0'/0'/0/2").unwrap(),
+                }
+            ],
+            network: NetworkKind::Main,
+        });
+        channel_tx.send(signed.map(|_| tx)).unwrap();
+    });
+    // give time for the thread above to start
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // first confirm the outputs
+    for _ in 0..pages {
+        // press right to show the next page
+        speculos.press(Button::Right).unwrap();
+    }
+    speculos.press(Button::Both).unwrap();
+    if tx_confirm {
+        // then confirm transaction itself
+        speculos.press(Button::Right).unwrap();
+        speculos.press(Button::Right).unwrap();
+        speculos.press(Button::Both).unwrap();
+    }
+
+    let tx = channel_rx.recv().unwrap();
+
+    if tx.is_err() {
+        panic!("Error signing transaction: {:?}", tx.err());
+    }
+
+    let tx = tx.unwrap();
+    assert_eq!(
+        hex::encode(bitcoin::consensus::serialize(&tx)),
+        "0200000000010175528e91d314bfe1dd46fc9d29039f4aa26e77cad0ee9216d0679be2327d21410000000000fdffffff017db2450000000000160014f00a5f3c60f40c5acfe59632e1e245b1641a17a70248304502210088cd53318fa416abf98cd6ae6cd3f92324c51263f3727b61cfdbd8cc0716db400220658f3bb5ffef826d0b2c1d334ac9c06ec4ad2b0f07906f1b0ac4c7acdddc1db00121035262f4b66caeab6e067e7e02acb9276f51fe7ddaec204bcc7ffe155964015b7b00000000"
+    );
+}
+
+
+#[tokio::test]
 pub async fn sign_tx_testnet_1() {
     common::init();
     let (speculos, manager, _container) = start_speculos_client(SpeculosConfig::bitcoin_test()).await.unwrap();

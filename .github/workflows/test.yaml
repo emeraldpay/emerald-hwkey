@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - master
+      - ci/*
   # on a pull request
   pull_request:
     branches:
@@ -19,32 +20,22 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout the code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v5
 
       - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
+        run: rustup toolchain add --profile=minimal stable
 
       - name: Install system libs
         run: sudo apt-get install libusb-1.0-0-dev libudev-dev
         if: runner.os == 'Linux'
 
       - name: Build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --all --release
+        run: cargo build --all --release
         env:
           RUST_BACKTRACE: "1"
 
       - name: Test
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --all-features --release
+        run: cargo test --all --release
         env:
           RUST_BACKTRACE: "1"
 
@@ -53,39 +44,37 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout the code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v5
 
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: nightly
-          override: true
+      - name: Install grcov
+        run: |
+          wget https://github.com/mozilla/grcov/releases/download/v0.10.5/grcov-x86_64-unknown-linux-gnu.tar.bz2
+          tar -xvf grcov-x86_64-unknown-linux-gnu.tar.bz2
+          rustup component add llvm-tools
 
       - name: Install system libs
         run: sudo apt-get install libusb-1.0-0-dev libudev-dev
-        if: runner.os == 'Linux'
 
       - name: Test
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --no-fail-fast --all-features
+        run: cargo test --no-fail-fast --all-features
         env:
+          # See https://github.com/mozilla/grcov
           CARGO_INCREMENTAL: '0'
-          RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
-          RUSTDOCFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
+          LLVM_PROFILE_FILE: "emerald-hwkey-%p-%m.profraw"
+          RUSTFLAGS: '-Cinstrument-coverage'
+          RUSTDOCFLAGS: '-Cpanic=abort'
 
       - name: Coverage Report
-        id: coverage
-        uses: actions-rs/grcov@v0.1
+        run: ./grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
 
       - name: Upload to Coveralls
         uses: coverallsapp/github-action@master
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          path-to-lcov: ${{ steps.coverage.outputs.report }}
+          path-to-lcov: lcov.info
 
       - name: Upload to Codecov
-        uses: codecov/codecov-action@v1
+        uses: codecov/codecov-action@v5
         with:
-          file: ${{ steps.coverage.outputs.report }}
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: lcov.info
